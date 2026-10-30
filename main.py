@@ -451,18 +451,21 @@ def get_metadata():
     return metadata
 
 @app.post("/predict", response_model=PredictionResponse)
+@app.post("/predict", response_model=PredictionResponse)
 def predict(payload: PredictionRequest):
     x = build_vector(payload)
     predicted_class = int(model.predict(x)[0])
     probabilities = model.predict_proba(x)[0]
+    
+    # Lấy đúng thứ tự lớp từ pipeline của mô hình SVM
     classes = list(model.named_steps["svc"].classes_)
     p = {int(c): float(v) for c, v in zip(classes, probabilities)}
 
     return PredictionResponse(
         predicted_class=predicted_class,
         predicted_label=metadata["class_mapping"][str(predicted_class)],
-        probability_malignant=p[0],
-        probability_benign=p[1],
+        probability_malignant=p.get(0, 0.0),  # Lớp 0: Ác tính (Malignant)
+        probability_benign=p.get(1, 0.0),     # Lớp 1: Lành tính (Benign)
         model_version=metadata["model_version"],
         warning=metadata["warning"]
     )
