@@ -50,7 +50,7 @@ def build_vector(payload: PredictionRequest) -> np.ndarray:
 
     values = np.array(
         [[payload.features[name] for name in expected]],
-        dtype=float
+        dtype=np.float64
     )
     if not np.isfinite(values).all():
         raise HTTPException(status_code=422, detail="Features must be finite numbers")
@@ -85,7 +85,7 @@ def home_page():
     </head>
     <body>
 
-        <!-- THANH ĐIỀU HƯỚNG BÊN TRÁI (SIDEBAR) -->
+        <!-- THANH ĐIỀU HƯỚNG BÊN TRÁI -->
         <div class="sidebar d-flex flex-column">
             <div class="brand">
                 <i class="fa-solid fa-heart-pulse text-danger"></i> OncoCare AI v1.0
@@ -109,7 +109,7 @@ def home_page():
             </div>
         </div>
 
-        <!-- NỘI DUNG CHÍNH (MAIN CONTENT) -->
+        <!-- NỘI DUNG CHÍNH -->
         <div class="main-content">
             
             <!-- DANH MỤC 1: CHẨN ĐOÁN AI -->
@@ -120,19 +120,22 @@ def home_page():
                         <p class="text-muted">Nhập các thông số tế bào học để hệ thống SVM đưa ra dự đoán chuyên sâu.</p>
                     </div>
                     <div>
-                        <button type="button" class="btn btn-outline-secondary btn-sm me-2" onclick="loadSampleData()"><i class="fa-solid fa-wand-magic-sparkles"></i> Điền Dữ Liệu Mẫu</button>
-                        <a href="/docs" target="_blank" class="btn btn-outline-info btn-sm"><i class="fa-solid fa-code"></i> Tài Liệu API</a>
+                        <button type="button" class="btn btn-outline-success btn-sm me-2" onclick="loadSampleData('benign')"><i class="fa-solid fa-shield-halved"></i> Mẫu Lành Tính</button>
+                        <button type="button" class="btn btn-outline-danger btn-sm me-2" onclick="loadSampleData('malignant')"><i class="fa-solid fa-biohazard"></i> Mẫu Ác Tính</button>
+                        <a href="/docs" target="_blank" class="btn btn-outline-info btn-sm"><i class="fa-solid fa-code"></i> API Docs</a>
                     </div>
                 </div>
 
                 <div class="card p-4 mb-4">
                     <form id="predictionForm">
-                        <h5 class="text-primary mb-3"><i class="fa-solid fa-microscope"></i> Thông Số Tế Bào Lâm Sàng (30 chỉ số chuẩn tiếng Việt)</h5>
+                        <h5 class="text-primary mb-3"><i class="fa-solid fa-microscope"></i> Thông Số Tế Bào Lâm Sàng (30 chỉ số)</h5>
                         <div class="row g-3" id="featureInputs">
                             <!-- Các chỉ số tiếng Việt sẽ được sinh tự động ở đây -->
                         </div>
                         <div class="mt-4 text-center">
-                            <button type="submit" class="btn btn-primary btn-lg px-5 shadow"><i class="fa-solid fa-calculator"></i> Thực Hiện Chẩn Đoán</button>
+                            <button type="submit" id="btnSubmit" class="btn btn-primary btn-lg px-5 shadow">
+                                <i class="fa-solid fa-calculator"></i> Thực Hiện Chẩn Đoán
+                            </button>
                         </div>
                     </form>
                 </div>
@@ -276,6 +279,28 @@ def home_page():
                 "worst fractal dimension": { name: "Chiều Fractal lớn nhất (Worst)", desc: "Độ phức tạp bờ viền lớn nhất" }
             };
 
+            const sampleMalignant = {
+                "mean radius": 17.99, "mean texture": 10.38, "mean perimeter": 122.8, "mean area": 1001.0,
+                "mean smoothness": 0.1184, "mean compactness": 0.2776, "mean concavity": 0.3001, "mean concave points": 0.1471,
+                "mean symmetry": 0.2419, "mean fractal dimension": 0.07871, "radius error": 1.095, "texture error": 0.9053,
+                "perimeter error": 8.589, "area error": 153.4, "smoothness error": 0.006399, "compactness error": 0.04904,
+                "concavity error": 0.05373, "concave points error": 0.01587, "symmetry error": 0.03003, "fractal dimension error": 0.006193,
+                "worst radius": 25.38, "worst texture": 17.33, "worst perimeter": 184.6, "worst area": 2019.0,
+                "worst smoothness": 0.1622, "worst compactness": 0.6656, "worst concavity": 0.7119, "worst concave points": 0.2654,
+                "worst symmetry": 0.4601, "worst fractal dimension": 0.1189
+            };
+
+            const sampleBenign = {
+                "mean radius": 13.54, "mean texture": 14.36, "mean perimeter": 87.46, "mean area": 566.3,
+                "mean smoothness": 0.09779, "mean compactness": 0.08129, "mean concavity": 0.06664, "mean concave points": 0.04781,
+                "mean symmetry": 0.1885, "mean fractal dimension": 0.05766, "radius error": 0.2699, "texture error": 0.7886,
+                "perimeter error": 2.058, "area error": 23.56, "smoothness error": 0.008462, "compactness error": 0.0146,
+                "concavity error": 0.02387, "concave points error": 0.01315, "symmetry error": 0.0198, "fractal dimension error": 0.0023,
+                "worst radius": 15.11, "worst texture": 19.26, "worst perimeter": 99.7, "worst area": 711.2,
+                "worst smoothness": 0.144, "worst compactness": 0.1773, "worst concavity": 0.239, "worst concave points": 0.1288,
+                "worst symmetry": 0.2977, "worst fractal dimension": 0.07259
+            };
+
             let featureNames = [];
             let diagnosisHistory = [];
             let stats = { total: 0, benign: 0, malignant: 0 };
@@ -298,13 +323,13 @@ def home_page():
                 formContainer.innerHTML = '';
                 featureNames.forEach((feature) => {
                     const info = featureVietnameseMap[feature] || { name: feature, desc: "Chỉ số tế bào học" };
-                    const randomVal = (Math.random() * 15 + 2).toFixed(2).replace('.', ',');
+                    const defaultVal = sampleBenign[feature] !== undefined ? sampleBenign[feature] : 10.0;
                     formContainer.innerHTML += `
                         <div class="col-md-4">
                             <div class="feature-card">
                                 <label class="form-label text-truncate fw-semibold small text-dark d-block mb-1" title="${info.name}">${info.name}</label>
                                 <div class="text-muted small mb-2" style="font-size: 0.75rem; height: 2.2em; overflow: hidden;" title="${info.desc}">${info.desc}</div>
-                                <input type="text" class="form-control form-control-sm" name="${feature}" required value="${randomVal}">
+                                <input type="text" class="form-control form-control-sm" name="${feature}" id="input_${feature.replace(/\s+/g, '_')}" required value="${defaultVal}">
                             </div>
                         </div>
                     `;
@@ -328,10 +353,13 @@ def home_page():
                 });
             }
 
-            function loadSampleData() {
-                const inputs = document.querySelectorAll('#featureInputs input');
-                inputs.forEach(input => {
-                    input.value = (Math.random() * 15 + 2).toFixed(2).replace('.', ',');
+            function loadSampleData(type) {
+                const targetSample = type === 'malignant' ? sampleMalignant : sampleBenign;
+                featureNames.forEach(feature => {
+                    const inputEl = document.getElementById(`input_${feature.replace(/\s+/g, '_')}`);
+                    if (inputEl && targetSample[feature] !== undefined) {
+                        inputEl.value = targetSample[feature];
+                    }
                 });
             }
 
@@ -348,6 +376,10 @@ def home_page():
 
             document.getElementById('predictionForm').addEventListener('submit', async function(e) {
                 e.preventDefault();
+                const btnSubmit = document.getElementById('btnSubmit');
+                btnSubmit.disabled = true;
+                btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang phân tích...';
+
                 const formData = new FormData(this);
                 const featuresObj = {};
                 formData.forEach((value, key) => {
@@ -409,6 +441,9 @@ def home_page():
 
                 } catch (err) {
                     alert('Lỗi kết nối đến server API!');
+                } finally {
+                    btnSubmit.disabled = false;
+                    btnSubmit.innerHTML = '<i class="fa-solid fa-calculator"></i> Thực Hiện Chẩn Đoán';
                 }
             });
 
@@ -451,21 +486,19 @@ def get_metadata():
     return metadata
 
 @app.post("/predict", response_model=PredictionResponse)
-@app.post("/predict", response_model=PredictionResponse)
 def predict(payload: PredictionRequest):
     x = build_vector(payload)
     predicted_class = int(model.predict(x)[0])
     probabilities = model.predict_proba(x)[0]
     
-    # Lấy đúng thứ tự lớp từ pipeline của mô hình SVM
     classes = list(model.named_steps["svc"].classes_)
     p = {int(c): float(v) for c, v in zip(classes, probabilities)}
 
     return PredictionResponse(
         predicted_class=predicted_class,
         predicted_label=metadata["class_mapping"][str(predicted_class)],
-        probability_malignant=p.get(0, 0.0),  # Lớp 0: Ác tính (Malignant)
-        probability_benign=p.get(1, 0.0),     # Lớp 1: Lành tính (Benign)
+        probability_malignant=p.get(0, 0.0),
+        probability_benign=p.get(1, 0.0),
         model_version=metadata["model_version"],
         warning=metadata["warning"]
     )
