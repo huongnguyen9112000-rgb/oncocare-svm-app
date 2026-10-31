@@ -56,7 +56,7 @@ def build_vector(payload: PredictionRequest) -> np.ndarray:
         raise HTTPException(status_code=422, detail="Features must be finite numbers")
     return values
 
-# Giao diện App Web Đa Danh Mục (Multi-Tab App UI) hoàn chỉnh
+# Giao diện App Web Đa Danh Mục (Multi-Tab App UI) phiên bản cao cấp
 @app.get("/", response_class=HTMLResponse)
 def home_page():
     return """
@@ -69,18 +69,45 @@ def home_page():
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
         <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
         <style>
-            body { background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-            .sidebar { min-height: 100vh; background: #2c3e50; color: white; position: fixed; width: 260px; top: 0; left: 0; z-index: 100; transition: all 0.3s; }
-            .sidebar .brand { padding: 20px; font-size: 1.2rem; font-weight: bold; background: #1a252f; text-align: center; border-bottom: 1px solid #34495e; }
-            .sidebar .nav-link { color: #bdc3c7; padding: 12px 20px; margin: 5px 15px; border-radius: 8px; transition: 0.2s; cursor: pointer; }
-            .sidebar .nav-link:hover, .sidebar .nav-link.active { background: #3498db; color: white; }
-            .sidebar .nav-link i { margin-right: 10px; width: 20px; }
-            .main-content { margin-left: 260px; padding: 30px; }
-            .card { border: none; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
-            .tab-pane-content { display: none; }
+            :root {
+                --primary-color: #0f766e;
+                --primary-hover: #115e59;
+                --bg-main: #f8fafc;
+                --sidebar-bg: #0f172a;
+            }
+            body { background-color: var(--bg-main); font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #334155; }
+            
+            /* Sidebar hiện đại */
+            .sidebar { min-height: 100vh; background: var(--sidebar-bg); color: #94a3b8; position: fixed; width: 280px; top: 0; left: 0; z-index: 100; box-shadow: 4px 0 20px rgba(0,0,0,0.05); }
+            .sidebar .brand { padding: 24px 20px; font-size: 1.25rem; font-weight: 700; color: #fff; background: #020617; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #1e293b; }
+            .sidebar .nav-link { color: #94a3b8; padding: 14px 20px; margin: 6px 16px; border-radius: 10px; font-weight: 500; transition: all 0.2s ease; cursor: pointer; display: flex; align-items: center; gap: 12px; }
+            .sidebar .nav-link:hover, .sidebar .nav-link.active { background: var(--primary-color); color: white; box-shadow: 0 4px 12px rgba(15, 118, 110, 0.3); }
+            .sidebar .nav-link i { font-size: 1.1rem; width: 24px; text-align: center; }
+            
+            /* Main Content */
+            .main-content { margin-left: 280px; padding: 40px; }
+            .card { border: none; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); background: #ffffff; transition: transform 0.2s; }
+            .tab-pane-content { display: none; animation: fadeIn 0.3s ease-in-out; }
             .tab-pane-content.active { display: block; }
-            .feature-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; transition: 0.2s; }
-            .feature-card:hover { border-color: #3498db; box-shadow: 0 2px 8px rgba(52,152,219,0.1); }
+            
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(6px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+
+            /* Feature Card */
+            .feature-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; transition: all 0.2s; }
+            .feature-card:hover { border-color: var(--primary-color); box-shadow: 0 4px 12px rgba(15, 118, 110, 0.08); transform: translateY(-2px); }
+            .feature-card .form-control { border-radius: 8px; border-color: #cbd5e1; font-weight: 600; color: #1e293b; }
+            .feature-card .form-control:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15); }
+
+            /* Buttons */
+            .btn-primary-custom { background-color: var(--primary-color); border: none; color: white; font-weight: 600; border-radius: 10px; padding: 12px 28px; transition: all 0.2s; }
+            .btn-primary-custom:hover { background-color: var(--primary-hover); color: white; box-shadow: 0 6px 16px rgba(15, 118, 110, 0.3); }
+
+            /* Progress bar custom */
+            .progress { border-radius: 8px; background-color: #f1f5f9; overflow: hidden; }
+            .progress-bar { transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
         </style>
     </head>
     <body>
@@ -88,9 +115,10 @@ def home_page():
         <!-- THANH ĐIỀU HƯỚNG BÊN TRÁI -->
         <div class="sidebar d-flex flex-column">
             <div class="brand">
-                <i class="fa-solid fa-heart-pulse text-danger"></i> OncoCare AI v1.0
+                <i class="fa-solid fa-notes-medical text-teal fs-4 text-white"></i> 
+                <span>OncoCare AI</span>
             </div>
-            <ul class="nav flex-column mt-3">
+            <ul class="nav flex-column mt-4">
                 <li class="nav-item">
                     <a class="nav-link active" onclick="switchTab('tab-predict', event)"><i class="fa-solid fa-stethoscope"></i> Chẩn Đoán AI</a>
                 </li>
@@ -104,8 +132,9 @@ def home_page():
                     <a class="nav-link" onclick="switchTab('tab-guide', event)"><i class="fa-solid fa-book-medical"></i> Hướng Dẫn Chỉ Số</a>
                 </li>
             </ul>
-            <div class="mt-auto p-3 text-center text-muted small border-top border-secondary">
-                Hệ thống hỗ trợ lâm sàng SVM<br>© 2026 Phiên bản Y tế
+            <div class="mt-auto p-4 text-muted small border-top border-dark">
+                <div class="fw-semibold text-slate-300">Hệ thống SVM Lâm Sàng</div>
+                <div style="font-size: 0.8rem;" class="mt-1">Phiên bản Y tế thông minh © 2026</div>
             </div>
         </div>
 
@@ -114,58 +143,72 @@ def home_page():
             
             <!-- DANH MỤC 1: CHẨN ĐOÁN AI -->
             <div id="tab-predict" class="tab-pane-content active">
-                <div class="d-flex justify-content-between align-items-center mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
                     <div>
-                        <h2>Phân Tích & Chẩn Đoán Ung Thư Vú</h2>
-                        <p class="text-muted">Nhập các thông số tế bào học để hệ thống SVM đưa ra dự đoán chuyên sâu.</p>
+                        <h2 class="fw-bold text-dark mb-1">Phân Tích & Chẩn Đoán Ung Thư Vú</h2>
+                        <p class="text-muted mb-0">Hệ thống trí tuệ nhân tạo hỗ trợ phân loại khối u dựa trên mô hình SVM chuẩn hóa.</p>
                     </div>
-                    <div>
-                        <button type="button" class="btn btn-outline-success btn-sm me-2" onclick="loadSampleData('benign')"><i class="fa-solid fa-shield-halved"></i> Mẫu Lành Tính</button>
-                        <button type="button" class="btn btn-outline-danger btn-sm me-2" onclick="loadSampleData('malignant')"><i class="fa-solid fa-biohazard"></i> Mẫu Ác Tính</button>
-                        <a href="/docs" target="_blank" class="btn btn-outline-info btn-sm"><i class="fa-solid fa-code"></i> API Docs</a>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-success btn-sm px-3 rounded-pill fw-semibold" onclick="loadSampleData('benign')">
+                            <i class="fa-solid fa-shield-halved me-1"></i> Mẫu Lành Tính
+                        </button>
+                        <button type="button" class="btn btn-outline-danger btn-sm px-3 rounded-pill fw-semibold" onclick="loadSampleData('malignant')">
+                            <i class="fa-solid fa-triangle-exclamation me-1"></i> Mẫu Ác Tính
+                        </button>
+                        <a href="/docs" target="_blank" class="btn btn-light btn-sm px-3 rounded-pill border fw-semibold text-secondary">
+                            <i class="fa-solid fa-code me-1"></i> API Docs
+                        </a>
                     </div>
                 </div>
 
                 <div class="card p-4 mb-4">
                     <form id="predictionForm">
-                        <h5 class="text-primary mb-3"><i class="fa-solid fa-microscope"></i> Thông Số Tế Bào Lâm Sàng (30 chỉ số)</h5>
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <h5 class="fw-bold text-primary mb-0" style="color: var(--primary-color) !important;">
+                                <i class="fa-solid fa-microscope me-2"></i> Thông Số Tế Bào Lâm Sàng (30 Chỉ Số)
+                            </h5>
+                            <span class="badge bg-light text-secondary border">Đơn vị chuẩn hóa FDA</span>
+                        </div>
                         <div class="row g-3" id="featureInputs">
-                            <!-- Các chỉ số tiếng Việt sẽ được sinh tự động ở đây -->
+                            <!-- Các chỉ số tiếng Việt được render động -->
                         </div>
                         <div class="mt-4 text-center">
-                            <button type="submit" id="btnSubmit" class="btn btn-primary btn-lg px-5 shadow">
-                                <i class="fa-solid fa-calculator"></i> Thực Hiện Chẩn Đoán
+                            <button type="submit" id="btnSubmit" class="btn btn-primary-custom btn-lg px-5 shadow-sm">
+                                <i class="fa-solid fa-calculator me-2"></i> Thực Hiện Chẩn Đoán AI
                             </button>
                         </div>
                     </form>
                 </div>
 
                 <!-- Khu vực kết quả -->
-                <div class="card p-4 shadow-sm" id="resultCard" style="display: none;">
-                    <h4 class="mb-3 text-secondary"><i class="fa-solid fa-file-medical"></i> Kết Quả Phân Tích Chuyên Sâu</h4>
-                    <div id="resultAlert" class="alert mb-3" role="alert"></div>
-                    <div class="row">
-                        <div class="col-md-6 border-end">
-                            <p class="mb-1 text-muted">Kết luận chẩn đoán:</p>
-                            <h3 id="resPrediction" class="fw-bold mb-3"></h3>
-                            <p class="small text-secondary mb-0"><i class="fa-solid fa-triangle-exclamation text-warning"></i> Lưu ý: Kết quả mang tính chất tham khảo hỗ trợ bác sĩ, không thay thế chẩn đoán lâm sàng tuyệt đối.</p>
+                <div class="card p-4 shadow-sm mb-5 border-start border-4 border-primary" id="resultCard" style="display: none;">
+                    <h4 class="mb-3 fw-bold text-dark"><i class="fa-solid fa-file-medical text-primary me-2"></i> Kết Quả Phân Tích Chuyên Sâu</h4>
+                    <div id="resultAlert" class="alert mb-4 py-3 rounded-3" role="alert"></div>
+                    <div class="row align-items-center">
+                        <div class="col-md-5 border-end-md">
+                            <span class="text-muted text-uppercase small fw-bold tracking-wider">Kết luận chẩn đoán mô hình:</span>
+                            <h2 id="resPrediction" class="fw-extrabold my-2 display-6"></h2>
+                            <p class="small text-muted mb-0 mt-3">
+                                <i class="fa-solid fa-circle-info text-primary me-1"></i> 
+                                Lưu ý: Kết quả mang tính chất tham khảo lâm sàng hỗ trợ bác sĩ chuyên khoa, không thay thế chẩn đoán giải phẫu bệnh chính thức.
+                            </p>
                         </div>
-                        <div class="col-md-6 ps-md-4 d-flex flex-column justify-content-center">
-                            <div class="mb-2">
-                                <div class="d-flex justify-content-between mb-1">
-                                    <span class="fw-semibold">Xác suất Lành tính (Benign):</span>
-                                    <span id="resBenignText" class="text-success fw-bold"></span>
+                        <div class="col-md-7 ps-md-4 mt-3 mt-md-0">
+                            <div class="mb-3 p-3 bg-light rounded-3">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span class="fw-semibold text-secondary">Xác suất Lành tính (Benign):</span>
+                                    <span id="resBenignText" class="text-success fw-bold fs-5">0%</span>
                                 </div>
-                                <div class="progress" style="height: 10px;">
+                                <div class="progress" style="height: 12px;">
                                     <div id="barBenign" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div>
                                 </div>
                             </div>
-                            <div class="mt-2">
-                                <div class="d-flex justify-content-between mb-1">
-                                    <span class="fw-semibold">Xác suất Ác tính (Malignant):</span>
-                                    <span id="resMalignantText" class="text-danger fw-bold"></span>
+                            <div class="p-3 bg-light rounded-3">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span class="fw-semibold text-secondary">Xác suất Ác tính (Malignant):</span>
+                                    <span id="resMalignantText" class="text-danger fw-bold fs-5">0%</span>
                                 </div>
-                                <div class="progress" style="height: 10px;">
+                                <div class="progress" style="height: 12px;">
                                     <div id="barMalignant" class="progress-bar bg-danger" role="progressbar" style="width: 0%"></div>
                                 </div>
                             </div>
@@ -176,13 +219,14 @@ def home_page():
 
             <!-- DANH MỤC 2: LỊCH SỬ KHÁM -->
             <div id="tab-history" class="tab-pane-content">
-                <h2 class="mb-3">Lịch Sử Các Ca Chẩn Đoán Gần Đây</h2>
+                <h2 class="fw-bold text-dark mb-1">Lịch Sử Các Ca Chẩn Đoán</h2>
+                <p class="text-muted mb-4">Danh sách các ca phân tích đã thực hiện trong phiên làm việc hiện tại.</p>
                 <div class="card p-4">
                     <div class="table-responsive">
                         <table class="table table-hover align-middle">
-                            <thead class="table-light">
+                            <thead class="table-light text-uppercase fs-7">
                                 <tr>
-                                    <th># Mã Ca</th>
+                                    <th>Mã Ca Khám</th>
                                     <th>Thời Gian</th>
                                     <th>Kết Luận</th>
                                     <th>Xác Suất Ác Tính</th>
@@ -191,7 +235,7 @@ def home_page():
                             </thead>
                             <tbody id="historyTableBody">
                                 <tr>
-                                    <td colspan="5" class="text-center text-muted py-4">Chưa có lịch sử chẩn đoán nào trong phiên làm việc này.</td>
+                                    <td colspan="5" class="text-center text-muted py-5">Chưa có lịch sử chẩn đoán nào được ghi nhận.</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -201,44 +245,46 @@ def home_page():
 
             <!-- DANH MỤC 3: THỐNG KÊ & BÁO CÁO -->
             <div id="tab-stats" class="tab-pane-content">
-                <h2 class="mb-3">Thống Kê Hệ Thống & Mô Hình</h2>
-                <div class="row g-4">
+                <h2 class="fw-bold text-dark mb-1">Thống Kê Hệ Thống & Mô Hình</h2>
+                <p class="text-muted mb-4">Tổng quan hiệu suất phân loại và thông số cấu hình mô hình SVM.</p>
+                <div class="row g-4 mb-4">
                     <div class="col-md-4">
-                        <div class="card p-3 text-center border-start border-primary border-4">
-                            <h6 class="text-muted">Tổng Số Ca Đã Phân Tích</h6>
-                            <h2 id="statTotal" class="text-primary fw-bold">0</h2>
+                        <div class="card p-4 text-center border-top border-primary border-4">
+                            <span class="text-muted fw-semibold small text-uppercase">Tổng Số Ca Phân Tích</span>
+                            <h2 id="statTotal" class="text-primary fw-bold mt-2 display-5">0</h2>
                         </div>
                     </div>
                     <div class="col-md-4">
-                        <div class="card p-3 text-center border-start border-success border-4">
-                            <h6 class="text-muted">Số Ca Lành Tính (Benign)</h6>
-                            <h2 id="statBenign" class="text-success fw-bold">0</h2>
+                        <div class="card p-4 text-center border-top border-success border-4">
+                            <span class="text-muted fw-semibold small text-uppercase">Ca Lành Tính (Benign)</span>
+                            <h2 id="statBenign" class="text-success fw-bold mt-2 display-5">0</h2>
                         </div>
                     </div>
                     <div class="col-md-4">
-                        <div class="card p-3 text-center border-start border-danger border-4">
-                            <h6 class="text-muted">Số Ca Ác Tính (Malignant)</h6>
-                            <h2 id="statMalignant" class="text-danger fw-bold">0</h2>
+                        <div class="card p-4 text-center border-top border-danger border-4">
+                            <span class="text-muted fw-semibold small text-uppercase">Ca Ác Tính (Malignant)</span>
+                            <h2 id="statMalignant" class="text-danger fw-bold mt-2 display-5">0</h2>
                         </div>
                     </div>
                 </div>
-                <div class="card p-4 mt-4">
-                    <h5>Thông Tin Mô Hình Đang Hoạt Động</h5>
-                    <ul class="list-group list-group-flush mt-3">
-                        <li class="list-group-item d-flex justify-content-between"><span>Thuật toán:</span> <strong>Support Vector Machine (SVM)</strong></li>
-                        <li class="list-group-item d-flex justify-content-between"><span>Phiên bản mô hình:</span> <strong id="modelVersionDisplay">1.0.0</strong></li>
-                        <li class="list-group-item d-flex justify-content-between"><span>Đặc trưng đầu vào:</span> <strong>30 chiều chỉ số tế bào nhân</strong></li>
+                <div class="card p-4">
+                    <h5 class="fw-bold mb-3"><i class="fa-solid fa-server me-2 text-primary"></i> Thông Tin Kỹ Thuật Mô Hình</h5>
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between py-3"><span>Thuật toán cốt lõi:</span> <strong class="text-dark">Support Vector Machine (SVM Classifier)</strong></li>
+                        <li class="list-group-item d-flex justify-content-between py-3"><span>Phiên bản triển khai:</span> <strong id="modelVersionDisplay" class="text-dark">1.0.0</strong></li>
+                        <li class="list-group-item d-flex justify-content-between py-3"><span>Không gian đặc trưng:</span> <strong class="text-dark">30 chiều hình thái học nhân tế bào</strong></li>
+                        <li class="list-group-item d-flex justify-content-between py-3"><span>Môi trường chạy:</span> <strong class="text-dark">FastAPI + Render Cloud Infrastructure</strong></li>
                     </ul>
                 </div>
             </div>
 
             <!-- DANH MỤC 4: HƯỚNG DẪN CHỈ SỐ -->
             <div id="tab-guide" class="tab-pane-content">
-                <h2 class="mb-3">Tra Cứu Ý Nghĩa 30 Chỉ Số Lâm Sàng</h2>
-                <p class="text-muted">Giải thích chi tiết các đặc trưng hình thái học nhân tế bào được trích xuất từ ảnh chụp tế bào học kim nhỏ (FNA).</p>
+                <h2 class="fw-bold text-dark mb-1">Tra Cứu Ý Nghĩa 30 Chỉ Số Lâm Sàng</h2>
+                <p class="text-muted mb-4">Giải thích chi tiết các đặc trưng hình thái học trích xuất từ ảnh chụp tế bào học kim nhỏ (FNA).</p>
                 <div class="card p-4">
                     <div class="row g-3" id="guideContainer">
-                        <!-- Danh sách giải thích chi tiết tiếng Việt -->
+                        <!-- Danh sách tra cứu -->
                     </div>
                 </div>
             </div>
@@ -326,9 +372,9 @@ def home_page():
                     const defaultVal = sampleBenign[feature] !== undefined ? sampleBenign[feature] : 10.0;
                     formContainer.innerHTML += `
                         <div class="col-md-4">
-                            <div class="feature-card">
-                                <label class="form-label text-truncate fw-semibold small text-dark d-block mb-1" title="${info.name}">${info.name}</label>
-                                <div class="text-muted small mb-2" style="font-size: 0.75rem; height: 2.2em; overflow: hidden;" title="${info.desc}">${info.desc}</div>
+                            <div class="feature-card h-100">
+                                <label class="form-label text-truncate fw-bold small text-dark d-block mb-1" title="${info.name}">${info.name}</label>
+                                <div class="text-muted small mb-2" style="font-size: 0.75rem; height: 2.4em; overflow: hidden;" title="${info.desc}">${info.desc}</div>
                                 <input type="text" class="form-control form-control-sm" name="${feature}" id="input_${feature.replace(/\s+/g, '_')}" required value="${defaultVal}">
                             </div>
                         </div>
@@ -343,10 +389,10 @@ def home_page():
                     const item = featureVietnameseMap[key];
                     guideContainer.innerHTML += `
                         <div class="col-md-6">
-                            <div class="p-3 border rounded bg-light">
-                                <h6 class="text-primary mb-1">${idx + 1}. ${item.name}</h6>
+                            <div class="p-3 border rounded-3 bg-light h-100">
+                                <h6 class="fw-bold text-dark mb-1">${idx + 1}. ${item.name}</h6>
                                 <p class="small text-muted mb-1"><em>Tên kỹ thuật:</em> <code>${key}</code></p>
-                                <p class="small mb-0">${item.desc}</p>
+                                <p class="small mb-0 text-secondary">${item.desc}</p>
                             </div>
                         </div>
                     `;
@@ -378,7 +424,7 @@ def home_page():
                 e.preventDefault();
                 const btnSubmit = document.getElementById('btnSubmit');
                 btnSubmit.disabled = true;
-                btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang phân tích...';
+                btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i> Đang phân tích...';
 
                 const formData = new FormData(this);
                 const featuresObj = {};
@@ -418,15 +464,15 @@ def home_page():
                     stats.total++;
                     if (data.predicted_label === 'benign') {
                         document.getElementById('resPrediction').innerHTML = '<span class="text-success">LÀNH TÍNH (BENIGN)</span>';
-                        resultAlert.className = 'alert alert-success';
-                        resultAlert.innerHTML = '<i class="fa-solid fa-circle-check"></i> <strong>Kết quả an toàn:</strong> Khối u mang đặc điểm lành tính, không có dấu hiệu ác tính đáng kể.';
+                        resultAlert.className = 'alert alert-success border-0 bg-success bg-opacity-10 text-success fw-semibold py-3';
+                        resultAlert.innerHTML = '<i class="fa-solid fa-circle-check me-2"></i> <strong>Kết quả an toàn:</strong> Khối u mang đặc điểm lành tính, không có dấu hiệu ác tính đáng kể.';
                         stats.benign++;
                         record.badgeClass = 'bg-success';
                         record.vietLabel = 'Lành tính';
                     } else {
                         document.getElementById('resPrediction').innerHTML = '<span class="text-danger">ÁC TÍNH (MALIGNANT)</span>';
-                        resultAlert.className = 'alert alert-danger';
-                        resultAlert.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> <strong>CẢNH BÁO:</strong> Khối u có xu hướng ác tính cao. Khuyến nghị bệnh nhân thực hiện sinh thiết và hội chẩn chuyên khoa ngay.';
+                        resultAlert.className = 'alert alert-danger border-0 bg-danger bg-opacity-10 text-danger fw-semibold py-3';
+                        resultAlert.innerHTML = '<i class="fa-solid fa-triangle-exclamation me-2"></i> <strong>CẢNH BÁO:</strong> Khối u có xu hướng ác tính cao. Khuyến nghị bệnh nhân thực hiện sinh thiết và hội chẩn chuyên khoa ngay.';
                         stats.malignant++;
                         record.badgeClass = 'bg-danger';
                         record.vietLabel = 'Ác tính';
@@ -439,29 +485,32 @@ def home_page():
                     diagnosisHistory.unshift(record);
                     updateHistoryTable();
 
+                    // Cuộn mượt xuống khu vực kết quả
+                    resultCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
                 } catch (err) {
                     alert('Lỗi kết nối đến server API!');
                 } finally {
                     btnSubmit.disabled = false;
-                    btnSubmit.innerHTML = '<i class="fa-solid fa-calculator"></i> Thực Hiện Chẩn Đoán';
+                    btnSubmit.innerHTML = '<i class="fa-solid fa-calculator me-2"></i> Thực Hiện Chẩn Đoán AI';
                 }
             });
 
             function updateHistoryTable() {
                 const tbody = document.getElementById('historyTableBody');
                 if (diagnosisHistory.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">Chưa có lịch sử chẩn đoán nào trong phiên làm việc này.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-5">Chưa có lịch sử chẩn đoán nào được ghi nhận.</td></tr>';
                     return;
                 }
                 tbody.innerHTML = '';
                 diagnosisHistory.forEach(item => {
                     tbody.innerHTML += `
                         <tr>
-                            <td><strong>${item.id}</strong></td>
-                            <td>${item.time}</td>
-                            <td><span class="badge ${item.badgeClass}">${item.vietLabel}</span></td>
-                            <td class="fw-bold">${item.malignantProb}</td>
-                            <td><button class="btn btn-sm btn-outline-primary" onclick="switchTab('tab-predict', event)"><i class="fa-solid fa-eye"></i> Xem</button></td>
+                            <td><strong class="text-dark">${item.id}</strong></td>
+                            <td class="text-secondary">${item.time}</td>
+                            <td><span class="badge ${item.badgeClass} px-3 py-2">${item.vietLabel}</span></td>
+                            <td class="fw-bold text-dark">${item.malignantProb}</td>
+                            <td><button class="btn btn-sm btn-outline-primary px-3 rounded-pill" onclick="switchTab('tab-predict', event)"><i class="fa-solid fa-eye me-1"></i> Xem</button></td>
                         </tr>
                     `;
                 });
@@ -491,7 +540,7 @@ def predict(payload: PredictionRequest):
     predicted_class = int(model.predict(x)[0])
     probabilities = model.predict_proba(x)[0]
     
-    classes = list(model.named_steps["svc"].classes_)
+    classes = list(model.named_steps["svc"].classes_ )
     p = {int(c): float(v) for c, v in zip(classes, probabilities)}
 
     return PredictionResponse(
