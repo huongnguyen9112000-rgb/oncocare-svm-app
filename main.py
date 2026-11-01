@@ -336,17 +336,46 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
   .stat-grid, .cmp-heads { grid-template-columns: 1fr; }
 }
 
-/* Print: only the report */
-.print-only { display: none; }
+/* Lab-sheet style print layout (hidden on screen) */
+#printSheet { display: none; }
+.ps { color: #111; font-size: 10pt; line-height: 1.4; }
+.ps-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 2.5px solid #0f7c78; padding-bottom: 10px; }
+.ps-brand { display: flex; align-items: center; gap: 10px; }
+.ps-brand b { font-family: var(--serif); font-size: 17pt; font-weight: 600; }
+.ps-brand b i { font-style: normal; color: #0f7c78; }
+.ps-brand small { display: block; font-size: 7.5pt; letter-spacing: .14em; text-transform: uppercase; color: #666; }
+.ps-meta { text-align: right; font-size: 9pt; color: #333; line-height: 1.6; }
+.ps-title { text-align: center; margin: 14px 0 12px; }
+.ps-title h1 { margin: 0; font-family: var(--serif); font-size: 15pt; letter-spacing: .04em; font-weight: 700; }
+.ps-title p { margin: 3px 0 0; font-size: 9pt; color: #555; }
+.ps table { width: 100%; border-collapse: collapse; }
+.ps th, .ps td { border: 1px solid #b8c4c4; padding: 5px 8px; font-size: 9.5pt; text-align: left; letter-spacing: 0; text-transform: none; font-weight: 400; color: #111; white-space: normal; }
+.ps tr:last-child td { border-bottom: 1px solid #b8c4c4; }
+.ps .lab { background: #eef5f4; font-weight: 700; width: 17%; }
+.ps-blank { display: block; border-bottom: 1px dotted #777; height: 1.1em; }
+.ps-sec { margin: 14px 0 5px; font-weight: 700; font-size: 9.5pt; text-transform: uppercase; letter-spacing: .06em; color: #0f7c78; }
+.ps-res th { background: #0f7c78; color: #fff; font-weight: 700; font-size: 9pt; text-align: center; }
+.ps-res td.n { text-align: right; font-family: var(--mono); }
+.ps-res td.c { text-align: center; width: 6%; }
+.ps-note { font-size: 8pt; color: #555; margin: 5px 0 0; }
+.ps-concl { margin-top: 14px; border: 2px solid var(--c); border-radius: 8px; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.ps-concl.ok { --c: #2b9a6a; } .ps-concl.bad { --c: #cf4545; }
+.ps-concl small { display: block; font-size: 8pt; letter-spacing: .1em; text-transform: uppercase; color: #555; font-weight: 700; }
+.ps-concl b { font-family: var(--serif); font-size: 18pt; color: var(--c); }
+.ps-concl .pr { text-align: right; font-size: 9.5pt; line-height: 1.7; }
+.ps-advice { margin: 8px 0 0; font-size: 9.5pt; }
+.ps-warn { margin: 6px 0 0; font-size: 9pt; color: #8a5608; }
+.ps-sign { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 18px; text-align: center; font-size: 9.5pt; }
+.ps-sign div { height: 85px; }
+.ps-sign small { display: block; color: #666; font-size: 8pt; }
+.ps-foot { margin-top: 10px; border-top: 1px solid #ccc; font-size: 8pt; color: #666; padding-top: 6px; text-align: center; }
 @media print {
-  @page { margin: 14mm; }
+  @page { size: A4; margin: 12mm 14mm; }
   body { background: #fff !important; }
-  .header, .hero, .page-head, .layout, .toasts, .modal, .no-print, #tab-history, #tab-batch, #tab-stats, #tab-guide { display: none !important; }
+  .header, .hero, .page-head, .layout, .toasts, .modal, .no-print, .report, #tab-history, #tab-batch, #tab-stats, #tab-guide { display: none !important; }
   #tab-predict { display: block !important; animation: none !important; }
   .wrap { padding: 0; max-width: none; }
-  .report { box-shadow: none !important; border: 1px solid #bbb; margin-top: 0 !important; animation: none !important; }
-  .needle, .bar i { transition: none !important; }
-  .sign { display: grid; }
+  #printSheet { display: block !important; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 </style>
@@ -506,8 +535,7 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
           <div class="rlegend" id="radarLegend"></div>
         </div>
 
-        <div class="sign print-only"><div data-i18n="sign_doc"></div><div data-i18n="sign_maker"></div></div>
-        <div class="rep-foot" data-i18n="rep_foot"></div>
+                <div class="rep-foot" data-i18n="rep_foot"></div>
       </div>
     </div>
   </div>
@@ -579,6 +607,7 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
 </main>
 
 <div class="modal" id="modal"><div class="modal-card" id="modalCard"></div></div>
+<div class="ps" id="printSheet"></div>
 <div class="toasts" id="toasts"></div>
 
 <script>
@@ -622,6 +651,11 @@ batch_empty:'File không có dữ liệu.', batch_sum:'{0} ca',
 st_title:'Thống kê & xu hướng', st_sub:'Tổng quan kết quả trong nhật ký.', st_total:'Tổng số ca', st_benign:'Ca lành tính', st_malig:'Ca ác tính',
 no_data:'Chưa có\ndữ liệu', ca_unit:'ca', trend_title:'Xu hướng xác suất ác tính', trend_sub:'Theo thứ tự thời gian của các ca gần nhất (tối đa 40).', trend_empty:'Cần ít nhất 2 ca để vẽ biểu đồ xu hướng.',
 guide_title:'Tra cứu 30 chỉ số lâm sàng', guide_sub:'Ý nghĩa kỹ thuật của các đặc trưng trích xuất tế bào học.', guide_search:'Tìm chỉ số...', guide_none:'Không tìm thấy chỉ số phù hợp.',
+ps_title:'PHIẾU KẾT QUẢ PHÂN TÍCH TẾ BÀO HỌC', ps_sub:'Hỗ trợ chẩn đoán bằng học máy (SVM) · Bộ dữ liệu Wisconsin Breast Cancer',
+ps_code:'Mã phiếu', ps_date:'Ngày giờ', ps_info:'I. Thông tin bệnh nhân', ps_res:'II. Kết quả các chỉ số tế bào học', ps_concl:'III. Kết luận của mô hình',
+ps_idx:'Chỉ số', ps_mean:'Trung bình', ps_se:'Sai số chuẩn', ps_worst:'Lớn nhất', ps_ref:'Tham chiếu lành tính (TB)',
+ps_ref_note:'Cột tham chiếu là giá trị trung bình của nhóm lành tính trong bộ dữ liệu Wisconsin, không phải khoảng bình thường lâm sàng.',
+ps_prob:'Xác suất ác tính', ps_sign_hint:'(Ký, ghi rõ họ tên)', ps_model:'Mô hình',
 t_meta:'Không tải được metadata từ máy chủ.', t_fill:'Có {0} ô trống hoặc không hợp lệ.', t_server:'Máy chủ trả về lỗi {0}', t_net:'Không thể kết nối máy chủ.',
 t_lb:'Đã nạp mẫu lành tính', t_lm:'Đã nạp mẫu ác tính', t_age:'Tuổi phải từ 0 đến 120.', status:'Sẵn sàng · SVM v{0}'
 },
@@ -663,6 +697,11 @@ batch_empty:'The file has no data.', batch_sum:'{0} cases',
 st_title:'Statistics & trends', st_sub:'Overview of the results in your history.', st_total:'Total cases', st_benign:'Benign cases', st_malig:'Malignant cases',
 no_data:'No\ndata', ca_unit:'cases', trend_title:'Malignancy probability trend', trend_sub:'In chronological order of the most recent cases (max 40).', trend_empty:'At least 2 cases are needed to draw the trend.',
 guide_title:'Reference for the 30 clinical features', guide_sub:'Technical meaning of the extracted cytological features.', guide_search:'Search features...', guide_none:'No matching feature found.',
+ps_title:'CYTOLOGY ANALYSIS RESULT SHEET', ps_sub:'Machine-learning (SVM) decision support · Wisconsin Breast Cancer dataset',
+ps_code:'Report no.', ps_date:'Date / time', ps_info:'I. Patient information', ps_res:'II. Cytological feature results', ps_concl:'III. Model conclusion',
+ps_idx:'Feature', ps_mean:'Mean', ps_se:'Std. error', ps_worst:'Worst', ps_ref:'Benign ref. (avg)',
+ps_ref_note:'The reference column is the benign-group average in the Wisconsin dataset, not a clinical normal range.',
+ps_prob:'Malignant probability', ps_sign_hint:'(Signature, full name)', ps_model:'Model',
 t_meta:'Could not load metadata from the server.', t_fill:'{0} field(s) are empty or invalid.', t_server:'Server returned error {0}', t_net:'Cannot reach the server.',
 t_lb:'Benign sample loaded', t_lm:'Malignant sample loaded', t_age:'Age must be between 0 and 120.', status:'Ready · SVM v{0}'
 }};
@@ -909,7 +948,51 @@ function renderResult(scroll) {
   drawRadar();
   if (scroll) $('resultCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+function buildSheet() {
+  const e = shown; if (!e) return;
+  const p = e.patient || {}, bad = e.mal;
+  const dots = v => v ? esc(v) : '<span class="ps-blank"></span>';
+  const val = f => e.features[f] !== undefined ? e.features[f] : '—';
+  const rows = BASES.map((b, i) => {
+    const fm = featKey('mean', b), fe = featKey('error', b), fw = featKey('worst', b);
+    const ref = REF[fm] ? Number(REF[fm].mean_benign.toPrecision(4)) : '—';
+    return `<tr><td class="c">${i + 1}</td><td>${esc(BASE_LBL[lang][i])}</td><td class="n">${val(fm)}</td><td class="n">${val(fe)}</td><td class="n">${val(fw)}</td><td class="n">${ref}</td></tr>`;
+  }).join('');
+  $('printSheet').innerHTML = `
+    <div class="ps-head">
+      <div class="ps-brand"><div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M12 4v16M4 12h16"/></svg></div>
+        <div><b>Onco<i>Care</i> AI</b><small>Clinical Decision Support</small></div></div>
+      <div class="ps-meta">${t('ps_code')}: <b>${e.id}</b><br>${t('ps_date')}: ${fmtTime(e.ts)}</div>
+    </div>
+    <div class="ps-title"><h1>${t('ps_title')}</h1><p>${t('ps_sub')}</p></div>
+    <div class="ps-sec" style="margin-top:0">${t('ps_info')}</div>
+    <table>
+      <tr><td class="lab">${t('pat_name')}</td><td colspan="3">${dots(p.name)}</td></tr>
+      <tr><td class="lab">${t('pat_age')}</td><td style="width:33%">${dots(p.age)}</td><td class="lab">${t('pat_id')}</td><td>${dots(p.pid)}</td></tr>
+      <tr><td class="lab">${t('pat_doc')}</td><td colspan="3">${dots(p.doctor)}</td></tr>
+      <tr><td class="lab">${t('pat_note')}</td><td colspan="3">${dots(p.note)}</td></tr>
+    </table>
+    <div class="ps-sec">${t('ps_res')}</div>
+    <table class="ps-res">
+      <thead><tr><th>#</th><th style="text-align:left">${t('ps_idx')}</th><th>${t('ps_mean')}</th><th>${t('ps_se')}</th><th>${t('ps_worst')}</th><th>${t('ps_ref')}</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="ps-note">${t('ps_ref_note')}</p>
+    <div class="ps-sec">${t('ps_concl')}</div>
+    <div class="ps-concl ${bad ? 'bad' : 'ok'}">
+      <div><small>${t('verdict_lbl')}</small><b>${t(bad ? 'malignant' : 'benign')}</b></div>
+      <div class="pr">${t('ps_prob')}: <b style="font-size:12pt;font-family:var(--mono)">${(e.pm * 100).toFixed(2)}%</b><br>${t('benign')}: ${(e.pb * 100).toFixed(2)}%</div>
+    </div>
+    <p class="ps-advice">${t(bad ? 'rep_bad' : 'rep_ok')}</p>
+    ${e.warn > 0 ? `<p class="ps-warn">${t('rep_warn', e.warn)}</p>` : ''}
+    <div class="ps-sign"><div>${t('sign_maker')}<small>${t('ps_sign_hint')}</small></div><div>${t('sign_doc')}<small>${t('ps_sign_hint')}</small></div></div>
+    <div class="ps-foot">${t('disc')} · ${t('ps_model')}: SVM${modelVer ? ' v' + modelVer : ''}</div>`;
+}
 function printReport() {
+  if (!shown) return;
+  const f = getPatient();
+  if (Object.values(f).some(Boolean)) { shown.patient = f; saveHistory(); renderHistory(); renderResult(false); }
+  buildSheet();
   const old = document.title; document.title = 'OncoCare-' + (shown ? shown.id : 'report');
   const restore = () => { document.title = old; window.removeEventListener('afterprint', restore); };
   window.addEventListener('afterprint', restore); window.print();
