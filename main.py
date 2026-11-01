@@ -7,8 +7,10 @@ import re
 import secrets
 import sqlite3
 import tempfile
+import threading
 import time
 from contextlib import contextmanager
+from functools import partial
 from typing import Optional
 import joblib
 import numpy as np
@@ -31,6 +33,7 @@ app = FastAPI(
 
 class PredictionRequest(BaseModel):
     features: dict[str, float] = Field(..., description="Exactly 30 named numeric features")
+    kernel: Optional[str] = None
 
 class PredictionResponse(BaseModel):
     predicted_class: int
@@ -39,9 +42,11 @@ class PredictionResponse(BaseModel):
     probability_benign: float
     model_version: str
     warning: str
+    kernel: str = ""
 
 class BatchRequest(BaseModel):
     rows: list[dict[str, float]] = Field(..., description="List of feature dicts (max 1000)")
+    kernel: Optional[str] = None
 
 def build_vector(payload: PredictionRequest) -> np.ndarray:
     expected = metadata["feature_names"]
@@ -78,6 +83,89 @@ def _build_reference() -> dict:
         return {}
 
 reference = _build_reference()
+
+# ====================== Kernel variants ======================
+# The saved model keeps its own kernel and is never modified. The other kernels are trained at
+# startup in a background thread (same pipeline, scikit-learn's bundled Wisconsin data) and scored
+# with 5-fold cross-validation so they can be compared with each other.
+KERNEL_ORDER = ["linear", "poly", "rbf", "sigmoid", "laplacian", "cosine"]
+try:
+    DEFAULT_KERNEL = str(model.named_steps["svc"].kernel)
+except Exception:
+    DEFAULT_KERNEL = "rbf"
+ALL_KERNELS = KERNEL_ORDER if DEFAULT_KERNEL in KERNEL_ORDER else [DEFAULT_KERNEL] + KERNEL_ORDER
+KERNEL_MODELS: dict = {}
+KERNEL_METRICS: dict = {}
+KERNEL_STATE = {"ready": False, "error": None}
+
+def _kernel_param(name: str):
+    if name in ("linear", "poly", "rbf", "sigmoid"):
+        return name
+    from sklearn.metrics.pairwise import cosine_similarity, laplacian_kernel
+    if name == "laplacian":
+        return partial(laplacian_kernel, gamma=1.0 / len(metadata["feature_names"]))
+    if name == "cosine":
+        return cosine_similarity
+    raise ValueError(f"unknown kernel {name}")
+
+def _make_pipeline(kernel: str, probability: bool):
+    from sklearn.base import clone
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+    if kernel == DEFAULT_KERNEL:
+        pipe = clone(model)
+    elif len(model.steps) > 1:
+        pipe = clone(model)
+        pipe.set_params(svc__kernel=_kernel_param(kernel), svc__gamma="scale", svc__degree=3, svc__coef0=0.0)
+    else:  # saved model has no scaler: add one so the other kernels behave sensibly
+        svc = clone(model.named_steps["svc"])
+        svc.set_params(kernel=_kernel_param(kernel), gamma="scale", degree=3, coef0=0.0)
+        pipe = Pipeline([("scaler", StandardScaler()), ("svc", svc)])
+    pipe.set_params(svc__probability=probability, svc__random_state=42)
+    return pipe
+
+def _train_kernels() -> None:
+    try:
+        from sklearn.datasets import load_breast_cancer
+        from sklearn.metrics import accuracy_score, precision_score, recall_score
+        from sklearn.model_selection import StratifiedKFold, cross_val_predict
+        d = load_breast_cancer()
+        names = [str(n) for n in d.feature_names]
+        order = metadata["feature_names"]
+        if set(order) != set(names):
+            raise RuntimeError("feature names differ from the bundled Wisconsin dataset")
+        X = d.data[:, [names.index(n) for n in order]]
+        y = d.target  # 0 = malignant, 1 = benign
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        for k in ALL_KERNELS:
+            try:
+                pred = cross_val_predict(_make_pipeline(k, False), X, y, cv=cv)
+                KERNEL_METRICS[k] = {
+                    "accuracy": float(accuracy_score(y, pred)),
+                    "precision": float(precision_score(y, pred, pos_label=0)),
+                    "recall": float(recall_score(y, pred, pos_label=0)),
+                }
+                if k != DEFAULT_KERNEL:
+                    m = _make_pipeline(k, True)
+                    m.fit(X, y)
+                    KERNEL_MODELS[k] = m
+            except Exception as exc:  # one failing kernel must not block the others
+                KERNEL_STATE["error"] = f"{k}: {exc}"
+    except Exception as exc:
+        KERNEL_STATE["error"] = str(exc)
+    finally:
+        KERNEL_STATE["ready"] = True
+
+threading.Thread(target=_train_kernels, daemon=True).start()
+
+def get_model(kernel: Optional[str]):
+    if not kernel or kernel == DEFAULT_KERNEL:
+        return model
+    if kernel in KERNEL_MODELS:
+        return KERNEL_MODELS[kernel]
+    if kernel in ALL_KERNELS and not KERNEL_STATE["ready"]:
+        raise HTTPException(status_code=503, detail={"code": "kernel_training"})
+    raise HTTPException(status_code=422, detail={"code": "unknown_kernel"})
 
 # ====================== Accounts & sessions ======================
 # Uses only the standard library (sqlite3 + scrypt), no extra packages needed.
@@ -534,6 +622,21 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
   .stat-grid, .cmp-heads { grid-template-columns: 1fr; }
 }
 
+/* Kernel picker */
+.kgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.kchip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--paper); cursor: pointer; transition: .18s; color: var(--ink); }
+.kchip b { font-size: .86rem; }
+.kchip small { font-family: var(--mono); font-size: .72rem; color: var(--muted); }
+.kchip:hover:not(:disabled) { border-color: var(--teal); }
+.kchip.on { border-color: var(--teal); background: var(--mint); box-shadow: 0 0 0 3px rgba(15,124,120,.12); }
+.kchip:disabled { opacity: .5; cursor: wait; }
+.kinfo { margin-top: 12px; font-size: .76rem; color: var(--ink-2); line-height: 1.55; }
+.kinfo .km { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
+.kinfo .km div { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; text-align: center; }
+.kinfo .km small { display: block; font-size: .58rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; }
+.kinfo .km b { font-family: var(--mono); font-size: .82rem; font-weight: 500; }
+.kinfo .kn { color: var(--muted); font-size: .68rem; }
+
 /* Auth */
 .booting .header, .booting .wrap { visibility: hidden; }
 .auth { position: fixed; inset: 0; z-index: 600; display: none; place-items: center; padding: 20px; overflow: auto; background-color: var(--paper);
@@ -719,6 +822,13 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
         </div>
 
         <div class="card">
+          <h4 data-i18n="k_title"></h4>
+          <p class="sub" data-i18n="k_sub"></p>
+          <div class="kgrid" id="kernelGrid"></div>
+          <div class="kinfo" id="kernelInfo"></div>
+        </div>
+
+        <div class="card">
           <div class="fill-top"><span data-i18n="fill_label"></span><span id="fillText">0/30</span></div>
           <div class="track"><i id="fillTrack"></i></div>
           <div class="warnline" id="warnLine"><i class="fa-solid fa-triangle-exclamation"></i><span id="warnLineT"></span></div>
@@ -740,7 +850,7 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
           <div><h3 data-i18n="rep_title"></h3><small id="resDate">—</small></div>
         </div>
         <div class="r">
-          <span class="chip" id="resId">#CA-0000</span>
+          <span class="chip" id="resKernel" style="display:none"></span><span class="chip" id="resId">#CA-0000</span>
           <button type="button" class="btn btn-solid no-print" onclick="printReport()"><i class="fa-solid fa-print"></i> <span data-i18n="rep_print"></span></button>
         </div>
       </div>
@@ -774,6 +884,14 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
             <div class="prob"><div class="prob-row"><span data-i18n="p_malignant"></span><b id="resMalignantText" style="color:var(--bad)">0%</b></div><div class="bar"><i id="barMalignant" style="background:var(--bad)"></i></div></div>
             <div class="note"><i class="fa-solid fa-circle-info" style="color:var(--teal);margin-top:3px"></i><span id="warnText"></span></div>
           </div>
+        </div>
+
+        <div class="radar-sec">
+          <div class="radar-top">
+            <div><h4 data-i18n="kc_title"></h4><p data-i18n="kc_sub"></p></div>
+            <button type="button" class="btn no-print" id="btnKcmp" onclick="runAllKernels()"><i class="fa-solid fa-layer-group"></i> <span data-i18n="kc_btn"></span></button>
+          </div>
+          <div id="kcBox"></div>
         </div>
 
         <div class="radar-sec">
@@ -961,6 +1079,20 @@ au_privacy:'Dữ liệu bệnh nhân chỉ lưu trên trình duyệt của bạn
 e_invalid_username:'Tên đăng nhập phải viết liền, không dấu tiếng Việt, không có khoảng trắng; chỉ gồm chữ a–z, số và . _ - (3–32 ký tự).', e_weak_password:'Mật khẩu cần từ 8 đến 128 ký tự và không được trùng tên đăng nhập.',
 e_mismatch:'Hai mật khẩu không khớp.', e_username_taken:'Tên đăng nhập này đã tồn tại.', e_invalid_credentials:'Sai tên đăng nhập hoặc mật khẩu.',
 e_too_many_attempts:'Thử quá nhiều lần. Vui lòng đợi vài phút rồi thử lại.', e_network:'Không thể kết nối máy chủ.', e_generic:'Có lỗi xảy ra, vui lòng thử lại.',
+k_title:'Kernel của SVM', k_sub:'Chọn hàm kernel dùng để phân loại. Thử nhiều kernel để xem kết quả có ổn định không.',
+k_def:'Mặc định', k_training:'Đang huấn luyện các kernel còn lại…', k_wait:'Các kernel khác chưa huấn luyện xong, vui lòng đợi vài giây rồi thử lại.',
+k_linear:'Ranh giới phân loại là một siêu phẳng. Đơn giản, nhanh, dễ diễn giải.',
+k_poly:'Đa thức bậc 3, bắt được tương tác giữa các chỉ số nhưng dễ quá khớp.',
+k_rbf:'Hàm Gaussian, linh hoạt và phổ biến nhất, thường là lựa chọn mặc định.',
+k_sigmoid:'Dạng tanh giống hàm kích hoạt của mạng nơ-ron, thường kém ổn định hơn các kernel khác.',
+k_laplacian:'Tương tự RBF nhưng dùng khoảng cách L1, ít nhạy với giá trị ngoại lai hơn. (Kernel tùy chỉnh)',
+k_cosine:'Đo độ giống nhau về hướng giữa hai ca, bỏ qua độ lớn tuyệt đối. (Kernel tùy chỉnh)',
+k_acc:'Accuracy', k_rec:'Recall ác tính', k_prec:'Precision ác tính',
+k_cv:'Đo bằng kiểm định chéo 5 phần trên bộ dữ liệu Wisconsin, chỉ để so sánh tương đối giữa các kernel.',
+k_src_saved:'Mô hình đã huấn luyện sẵn', k_src_trained:'Huấn luyện lại khi khởi động server',
+kc_title:'Đồng thuận giữa các kernel', kc_sub:'Chạy cùng một ca qua tất cả kernel để xem kết luận có ổn định hay không.', kc_btn:'So sánh tất cả kernel',
+kc_agree:'Đồng thuận: {0}/{1} kernel cùng kết luận "{2}".', kc_split:'Các kernel chưa thống nhất ({0}/{1} cùng kết luận "{2}"). Nên thận trọng và đối chiếu thêm.',
+kc_th_k:'Kernel', kc_th_r:'Kết luận', kc_th_p:'Xác suất ác tính', kc_th_a:'Accuracy (CV)', kc_print:'Đồng thuận giữa các kernel: {0}/{1} kernel cùng kết luận.',
 t_meta:'Không tải được metadata từ máy chủ.', t_fill:'Có {0} ô trống hoặc không hợp lệ.', t_server:'Máy chủ trả về lỗi {0}', t_net:'Không thể kết nối máy chủ.',
 t_lb:'Đã nạp mẫu lành tính', t_lm:'Đã nạp mẫu ác tính', t_age:'Tuổi phải từ 0 đến 120.', status:'Sẵn sàng · SVM v{0}'
 },
@@ -1018,6 +1150,20 @@ au_privacy:'Patient data stays in your browser and is never sent to the server.'
 e_invalid_username:'Username must have no spaces or accented letters; only a–z, digits and . _ - (3–32 characters).', e_weak_password:'Password must be 8–128 characters and different from the username.',
 e_mismatch:'The two passwords do not match.', e_username_taken:'This username is already taken.', e_invalid_credentials:'Wrong username or password.',
 e_too_many_attempts:'Too many attempts. Please wait a few minutes and try again.', e_network:'Cannot reach the server.', e_generic:'Something went wrong, please try again.',
+k_title:'SVM kernel', k_sub:'Choose the kernel function used for classification. Try several kernels to see whether the result is stable.',
+k_def:'Default', k_training:'Training the remaining kernels…', k_wait:'The other kernels are still training, please wait a few seconds and try again.',
+k_linear:'The decision boundary is a hyperplane. Simple, fast and easy to interpret.',
+k_poly:'Degree-3 polynomial: captures interactions between features but can overfit.',
+k_rbf:'Gaussian function: flexible and the most popular, usually the default choice.',
+k_sigmoid:'A tanh shape like a neural-network activation; usually less stable than the others.',
+k_laplacian:'Like RBF but uses L1 distance, so it is less sensitive to outliers. (Custom kernel)',
+k_cosine:'Measures how similar two cases are in direction, ignoring absolute magnitude. (Custom kernel)',
+k_acc:'Accuracy', k_rec:'Malignant recall', k_prec:'Malignant precision',
+k_cv:'Measured with 5-fold cross-validation on the Wisconsin dataset, only for relative comparison between kernels.',
+k_src_saved:'Pre-trained saved model', k_src_trained:'Re-trained when the server starts',
+kc_title:'Agreement between kernels', kc_sub:'Run the same case through every kernel to see whether the conclusion is stable.', kc_btn:'Compare all kernels',
+kc_agree:'Agreement: {0}/{1} kernels reach "{2}".', kc_split:'The kernels disagree ({0}/{1} reach "{2}"). Be cautious and cross-check.',
+kc_th_k:'Kernel', kc_th_r:'Result', kc_th_p:'Malignant prob.', kc_th_a:'Accuracy (CV)', kc_print:'Kernel agreement: {0}/{1} kernels reach the same conclusion.',
 t_meta:'Could not load metadata from the server.', t_fill:'{0} field(s) are empty or invalid.', t_server:'Server returned error {0}', t_net:'Cannot reach the server.',
 t_lb:'Benign sample loaded', t_lm:'Malignant sample loaded', t_age:'Age must be between 0 and 120.', status:'Ready · SVM v{0}'
 }};
@@ -1121,7 +1267,7 @@ function applyLang() {
   $('lowTxt').textContent = t('meter_low'); $('highTxt').textContent = t('meter_high');
   document.querySelectorAll('[data-f]').forEach(el => el.textContent = fName(el.dataset.f));
   document.querySelectorAll('[data-fd]').forEach(el => el.textContent = fDesc(el.dataset.fd));
-  setRunBtn(false); renderGuide($('guideSearch').value); renderHistory(); renderStats(); renderBatch(); updateFill(); renderAuth();
+  setRunBtn(false); renderGuide($('guideSearch').value); renderHistory(); renderStats(); renderBatch(); updateFill(); renderAuth(); renderKernels(); renderKernelCompare();
   if (shown) renderResult(false);
 }
 document.querySelectorAll('.lang button').forEach(b => b.onclick = () => { lang = b.dataset.lang; try { localStorage.setItem('onco-lang', lang); } catch (e) {} applyLang(); });
@@ -1140,6 +1286,7 @@ async function init() {
   try { const r = await fetch('/reference'); if (r.status === 401) { location.reload(); return; } if (r.ok) REF = await r.json(); } catch (e) {}
   renderInputs(); applyLang(); setValues(sampleBenign);
   if (!$('pDoc').value) $('pDoc').value = defaultDoctor();
+  loadKernels();
 }
 
 /* ================= Form ================= */
@@ -1241,6 +1388,7 @@ function renderResult(scroll) {
   const pB = e.pb * 100, pM = e.pm * 100, bad = e.mal;
   $('resultCard').classList.add('show');
   $('resId').textContent = '#' + e.id; $('resDate').textContent = fmtTime(e.ts);
+  const rk = $('resKernel'); rk.style.display = e.kernel ? '' : 'none'; rk.textContent = 'SVM · ' + kName(e.kernel);
   const p = e.patient || {}, any = p.name || p.age || p.pid || p.doctor || p.note;
   $('pblock').style.display = any ? 'grid' : 'none';
   $('rpName').textContent = p.name || '—'; $('rpAge').textContent = p.age || '—'; $('rpId').textContent = p.pid || '—'; $('rpDoc').textContent = p.doctor || '—'; $('rpNote').textContent = p.note || '—';
@@ -1263,7 +1411,7 @@ function renderResult(scroll) {
   }
   const ra = $('rangeAlert');
   if (e.warn > 0) { ra.style.display = 'flex'; ra.innerHTML = `<i class="fa-solid fa-circle-exclamation" style="margin-top:3px"></i><span>${t('rep_warn', e.warn)}</span>`; } else ra.style.display = 'none';
-  drawRadar();
+  drawRadar(); renderKernelCompare();
   if (scroll) $('resultCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function buildSheet() {
@@ -1303,8 +1451,9 @@ function buildSheet() {
     </div>
     <p class="ps-advice">${t(bad ? 'rep_bad' : 'rep_ok')}</p>
     ${e.warn > 0 ? `<p class="ps-warn">${t('rep_warn', e.warn)}</p>` : ''}
+    ${e.kres && e.kres.length ? `<p class="ps-advice">${t('kc_print', e.kres.filter(x => x.mal === e.mal).length, e.kres.length)}</p>` : ''}
     <div class="ps-sign"><div>${t('sign_maker')}<small>${t('ps_sign_hint')}</small></div><div>${t('sign_doc')}<small>${t('ps_sign_hint')}</small></div></div>
-    <div class="ps-foot">${t('disc')} · ${t('ps_model')}: SVM${modelVer ? ' v' + modelVer : ''}</div>`;
+    <div class="ps-foot">${t('disc')} · ${t('ps_model')}: SVM${e.kernel ? ' · Kernel ' + kName(e.kernel) : ''}${modelVer ? ' · v' + modelVer : ''}</div>`;
 }
 function printReport() {
   if (!shown) return;
@@ -1329,11 +1478,12 @@ $('predictionForm').addEventListener('submit', async ev => {
   }
   setRunBtn(true);
   try {
-    const res = await fetch('/predict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ features: obj }) });
+    const res = await fetch('/predict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ features: obj, kernel: kernelToUse() }) });
     if (res.status === 401) { location.reload(); return; }
+    if (res.status === 503) throw new Error(t('k_wait'));
     if (!res.ok) throw new Error(t('t_server', res.status));
     const d = await res.json();
-    const entry = { id: nextId(), ts: Date.now(), patient: getPatient(), mal: d.predicted_label !== 'benign', pm: d.probability_malignant, pb: d.probability_benign, features: obj, warn: countWarn() };
+    const entry = { id: nextId(), ts: Date.now(), patient: getPatient(), mal: d.predicted_label !== 'benign', pm: d.probability_malignant, pb: d.probability_benign, features: obj, warn: countWarn(), kernel: d.kernel || kernelToUse() };
     historyList.unshift(entry); if (historyList.length > 200) historyList.length = 200;
     saveHistory(); shown = entry; renderResult(true); renderHistory(); renderStats();
   } catch (err) { toast(err.message || t('t_net')); }
@@ -1364,7 +1514,7 @@ function renderHistory() {
     const p = h.patient || {}, who = p.name ? `${esc(p.name)}<small>${[p.age ? esc(p.age) + (lang === 'vi' ? ' tuổi' : ' y/o') : '', p.pid ? esc(p.pid) : ''].filter(Boolean).join(' · ')}</small>` : '—';
     return `<tr><td><input type="checkbox" ${selected.includes(h.id) ? 'checked' : ''} onchange="toggleSel('${h.id}',this.checked)"></td>
       <td class="mono">${h.id}</td><td style="color:var(--muted)">${fmtTime(h.ts)}</td><td>${who}</td>
-      <td><span class="badge ${h.mal ? 'bad' : 'ok'}">${t(h.mal ? 'malignant' : 'benign')}</span></td><td class="mono">${(h.pm * 100).toFixed(2)}%</td>
+      <td><span class="badge ${h.mal ? 'bad' : 'ok'}">${t(h.mal ? 'malignant' : 'benign')}</span>${h.kernel ? `<small>SVM · ${esc(kName(h.kernel))}</small>` : ''}</td><td class="mono">${(h.pm * 100).toFixed(2)}%</td>
       <td style="text-align:right;white-space:nowrap"><button class="btn" style="padding:7px 14px" onclick="viewCase('${h.id}')"><i class="fa-regular fa-eye"></i> ${t('view')}</button>
       <button class="row-btn" onclick="delCase('${h.id}')"><i class="fa-solid fa-xmark"></i></button></td></tr>`;
   }).join('');
@@ -1382,8 +1532,8 @@ function delCase(id) { historyList = historyList.filter(h => h.id !== id); if (s
 function clearHistory() { if (!historyList.length || !confirm(t('confirm_clear'))) return; historyList = []; selected = []; shown = null; $('resultCard').classList.remove('show'); saveHistory(); renderHistory(); renderStats(); }
 function exportHistoryCSV() {
   if (!historyList.length) return;
-  const head = ['id', 'time', 'patient_name', 'age', 'patient_id', 'physician', 'note', 'result', 'prob_malignant', 'prob_benign', ...featureNames];
-  const rows = [head, ...historyList.map(h => { const p = h.patient || {}; return [h.id, new Date(h.ts).toISOString(), p.name, p.age, p.pid, p.doctor, p.note, h.mal ? 'malignant' : 'benign', h.pm.toFixed(6), h.pb.toFixed(6), ...featureNames.map(f => h.features[f])]; })];
+  const head = ['id', 'time', 'patient_name', 'age', 'patient_id', 'physician', 'note', 'result', 'kernel', 'prob_malignant', 'prob_benign', ...featureNames];
+  const rows = [head, ...historyList.map(h => { const p = h.patient || {}; return [h.id, new Date(h.ts).toISOString(), p.name, p.age, p.pid, p.doctor, p.note, h.mal ? 'malignant' : 'benign', h.kernel || '', h.pm.toFixed(6), h.pb.toFixed(6), ...featureNames.map(f => h.features[f])]; })];
   download('oncocare_history.csv', toCSV(rows));
 }
 
@@ -1518,20 +1668,21 @@ async function runBatch() {
   if (!batchRows.length) return;
   const b = $('btnBatchRun'); b.disabled = true;
   try {
-    const res = await fetch('/predict_batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: batchRows.map(r => r.features) }) });
+    const res = await fetch('/predict_batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: batchRows.map(r => r.features), kernel: kernelToUse() }) });
     if (res.status === 401) { location.reload(); return; }
+    if (res.status === 503) throw new Error(t('k_wait'));
     if (!res.ok) throw new Error(t('t_server', res.status));
-    batchResults = (await res.json()).results; renderBatch();
+    const bd = await res.json(); batchResults = bd.results; batchKernel = bd.kernel || ''; renderBatch();
   } catch (e) { toast(e.message || t('t_net')); }
   finally { b.disabled = !batchRows.length; }
 }
 function exportBatchCSV() {
-  const rows = [['id', 'result', 'prob_malignant', 'prob_benign'], ...batchResults.map((r, i) => [batchRows[i].id, r.predicted_label, r.probability_malignant.toFixed(6), r.probability_benign.toFixed(6)])];
+  const rows = [['id', 'result', 'kernel', 'prob_malignant', 'prob_benign'], ...batchResults.map((r, i) => [batchRows[i].id, r.predicted_label, batchKernel, r.probability_malignant.toFixed(6), r.probability_benign.toFixed(6)])];
   download('oncocare_batch_results.csv', toCSV(rows));
 }
 function saveBatchToHistory() {
   const now = Date.now();
-  batchResults.forEach((r, i) => historyList.unshift({ id: nextId(), ts: now + i, patient: { name: batchRows[i].id }, mal: r.predicted_label !== 'benign', pm: r.probability_malignant, pb: r.probability_benign, features: batchRows[i].features, warn: 0 }));
+  batchResults.forEach((r, i) => historyList.unshift({ id: nextId(), ts: now + i, patient: { name: batchRows[i].id }, mal: r.predicted_label !== 'benign', pm: r.probability_malignant, pb: r.probability_benign, features: batchRows[i].features, warn: 0, kernel: batchKernel }));
   if (historyList.length > 200) historyList.length = 200;
   saveHistory(); renderHistory(); renderStats(); toast(t('batch_saved', batchResults.length), true);
 }
@@ -1544,6 +1695,72 @@ const drop = $('drop');
 ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('drag'); }));
 drop.addEventListener('drop', e => handleFile(e.dataTransfer.files[0]));
 $('fileIn').addEventListener('change', e => { handleFile(e.target.files[0]); e.target.value = ''; });
+
+/* ================= Kernels ================= */
+const KNAME = { linear: 'Linear', poly: 'Polynomial', rbf: 'RBF', sigmoid: 'Sigmoid', laplacian: 'Laplacian', cosine: 'Cosine' };
+const kName = k => k ? (KNAME[k] || k) : '';
+let KERNELS = [], DEFAULT_K = '', selKernel = '', kernelsReady = false, kPoll = null, batchKernel = '';
+const kernelToUse = () => { const k = KERNELS.find(z => z.name === selKernel); return k && k.available ? selKernel : (DEFAULT_K || ''); };
+async function loadKernels() {
+  try {
+    const r = await fetch('/kernels');
+    if (r.status === 401) { location.reload(); return; }
+    if (!r.ok) return;
+    const d = await r.json();
+    KERNELS = d.kernels; DEFAULT_K = d.default; kernelsReady = d.ready;
+    if (!selKernel) { let s = ''; try { s = localStorage.getItem('onco-kernel') || ''; } catch (e) {} selKernel = KERNELS.some(k => k.name === s) ? s : DEFAULT_K; }
+    renderKernels();
+    if (shown && shown.kres) renderKernelCompare();
+    if (!d.ready) { clearTimeout(kPoll); kPoll = setTimeout(loadKernels, 3000); }
+  } catch (e) {}
+}
+function renderKernels() {
+  const g = $('kernelGrid'); if (!g) return;
+  if (!KERNELS.length) { g.innerHTML = ''; $('kernelInfo').innerHTML = ''; return; }
+  const cur = kernelToUse();
+  g.innerHTML = KERNELS.map(k => `<button type="button" class="kchip${k.name === cur ? ' on' : ''}" ${k.available ? '' : 'disabled'} onclick="selectKernel('${k.name}')"><b>${kName(k.name)}</b><small>${k.metrics ? (k.metrics.accuracy * 100).toFixed(1) + '%' : '…'}</small></button>`).join('');
+  const c = KERNELS.find(k => k.name === cur); let html = '';
+  if (c) {
+    html += `<div>${t('k_' + c.name)}</div>`;
+    if (c.metrics) { const m = c.metrics; html += `<div class="km"><div><small>${t('k_acc')}</small><b>${(m.accuracy * 100).toFixed(1)}%</b></div><div><small>${t('k_rec')}</small><b>${(m.recall * 100).toFixed(1)}%</b></div><div><small>${t('k_prec')}</small><b>${(m.precision * 100).toFixed(1)}%</b></div></div><div class="kn">${t('k_cv')}</div>`; }
+    html += `<div class="kn" style="margin-top:6px">${c.is_default ? '★ ' + t('k_def') + ' · ' : ''}${t(c.source === 'saved' ? 'k_src_saved' : 'k_src_trained')}</div>`;
+  }
+  if (!kernelsReady) html += `<div class="kn" style="margin-top:8px"><i class="fa-solid fa-spinner fa-spin"></i> ${t('k_training')}</div>`;
+  $('kernelInfo').innerHTML = html;
+}
+function selectKernel(name) {
+  const k = KERNELS.find(z => z.name === name); if (!k || !k.available) { toast(t('k_wait')); return; }
+  selKernel = name; try { localStorage.setItem('onco-kernel', name); } catch (e) {}
+  renderKernels();
+}
+async function runAllKernels() {
+  if (!shown) return;
+  const ks = KERNELS.filter(k => k.available);
+  if (!ks.length) { toast(t('k_wait')); return; }
+  const btn = $('btnKcmp'); btn.disabled = true;
+  try {
+    const out = await Promise.all(ks.map(async k => {
+      const r = await fetch('/predict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ features: shown.features, kernel: k.name }) });
+      if (r.status === 401) { location.reload(); throw new Error('401'); }
+      if (!r.ok) throw new Error(t('t_server', r.status));
+      const d = await r.json();
+      return { k: k.name, mal: d.predicted_label !== 'benign', pm: d.probability_malignant };
+    }));
+    shown.kres = out; saveHistory(); renderKernelCompare();
+  } catch (e) { toast(e.message || t('t_net')); }
+  finally { btn.disabled = false; }
+}
+function renderKernelCompare() {
+  const box = $('kcBox'); if (!box) return;
+  if (!shown || !shown.kres || !shown.kres.length) { box.innerHTML = ''; return; }
+  const res = shown.kres, agree = res.filter(x => x.mal === shown.mal).length, split = agree !== res.length;
+  const rows = res.map(r => {
+    const k = KERNELS.find(z => z.name === r.k), acc = k && k.metrics ? (k.metrics.accuracy * 100).toFixed(1) + '%' : '—';
+    return `<tr><td><b>${kName(r.k)}</b>${r.k === shown.kernel ? ' ★' : ''}</td><td><span class="badge ${r.mal ? 'bad' : 'ok'}">${t(r.mal ? 'malignant' : 'benign')}</span></td><td class="mono">${(r.pm * 100).toFixed(1)}%</td><td style="width:32%"><div class="bar"><i style="width:${(r.pm * 100).toFixed(1)}%;background:${r.mal ? 'var(--bad)' : 'var(--ok)'}"></i></div></td><td class="mono">${acc}</td></tr>`;
+  }).join('');
+  box.innerHTML = `<div class="banner ${split ? 'warn' : 'ok'}" style="margin-top:12px"><i class="fa-solid ${split ? 'fa-circle-exclamation' : 'fa-circle-check'}" style="margin-top:3px"></i><span>${t(split ? 'kc_split' : 'kc_agree', agree, res.length, t(shown.mal ? 'malignant' : 'benign'))}</span></div>
+    <div class="table-wrap" style="padding:0"><table><thead><tr><th>${t('kc_th_k')}</th><th>${t('kc_th_r')}</th><th>${t('kc_th_p')}</th><th></th><th>${t('kc_th_a')}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
 
 /* ================= Auth ================= */
 let USER = null, REQUIRE_LOGIN = true, authMode = 'login';
@@ -1645,12 +1862,26 @@ def get_metadata():
 def get_reference(user: dict = Depends(current_user)):
     return reference
 
+@app.get("/kernels")
+def get_kernels(user: dict = Depends(current_user)):
+    items = []
+    for k in ALL_KERNELS:
+        items.append({
+            "name": k,
+            "available": k == DEFAULT_KERNEL or k in KERNEL_MODELS,
+            "is_default": k == DEFAULT_KERNEL,
+            "source": "saved" if k == DEFAULT_KERNEL else "trained",
+            "metrics": KERNEL_METRICS.get(k),
+        })
+    return {"default": DEFAULT_KERNEL, "ready": KERNEL_STATE["ready"], "error": KERNEL_STATE["error"], "kernels": items}
+
 @app.post("/predict", response_model=PredictionResponse)
 def predict(payload: PredictionRequest, user: dict = Depends(current_user)):
     x = build_vector(payload)
-    pred = int(model.predict(x)[0])
-    proba = model.predict_proba(x)[0]
-    classes = list(model.named_steps["svc"].classes_)
+    m = get_model(payload.kernel)
+    pred = int(m.predict(x)[0])
+    proba = m.predict_proba(x)[0]
+    classes = list(m.named_steps["svc"].classes_)
     p = {int(c): float(v) for c, v in zip(classes, proba)}
     return PredictionResponse(
         predicted_class=pred,
@@ -1658,7 +1889,8 @@ def predict(payload: PredictionRequest, user: dict = Depends(current_user)):
         probability_malignant=p.get(0, 0.0),
         probability_benign=p.get(1, 0.0),
         model_version=metadata["model_version"],
-        warning=metadata["warning"]
+        warning=metadata["warning"],
+        kernel=payload.kernel or DEFAULT_KERNEL
     )
 
 @app.post("/predict_batch")
@@ -1681,9 +1913,10 @@ def predict_batch(payload: BatchRequest, user: dict = Depends(current_user)):
     if not np.isfinite(x).all():
         raise HTTPException(status_code=422, detail="Features must be finite numbers")
 
-    preds = model.predict(x)
-    probas = model.predict_proba(x)
-    classes = [int(c) for c in model.named_steps["svc"].classes_]
+    m = get_model(payload.kernel)
+    preds = m.predict(x)
+    probas = m.predict_proba(x)
+    classes = [int(c) for c in m.named_steps["svc"].classes_]
 
     results = []
     for pred, proba in zip(preds, probas):
@@ -1694,4 +1927,4 @@ def predict_batch(payload: BatchRequest, user: dict = Depends(current_user)):
             "probability_malignant": p.get(0, 0.0),
             "probability_benign": p.get(1, 0.0),
         })
-    return {"results": results, "model_version": metadata["model_version"]}
+    return {"results": results, "model_version": metadata["model_version"], "kernel": payload.kernel or DEFAULT_KERNEL}
