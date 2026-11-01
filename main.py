@@ -1,8 +1,18 @@
 from pathlib import Path
+import hashlib
+import hmac
 import json
+import os
+import re
+import secrets
+import sqlite3
+import tempfile
+import time
+from contextlib import contextmanager
+from typing import Optional
 import joblib
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -68,6 +78,194 @@ def _build_reference() -> dict:
         return {}
 
 reference = _build_reference()
+
+# ====================== Accounts & sessions ======================
+# Uses only the standard library (sqlite3 + scrypt), no extra packages needed.
+# NOTE: on Render's free plan the disk is ephemeral, so accounts are wiped on every
+# redeploy/restart. Attach a Render Disk and set DATA_DIR to its mount path to keep them.
+REQUIRE_LOGIN = os.getenv("REQUIRE_LOGIN", "1").strip().lower() not in ("0", "false", "no")
+COOKIE_NAME = "onco_session"
+SESSION_SHORT = 60 * 60 * 12          # 12 hours (browser-session cookie)
+SESSION_LONG = 60 * 60 * 24 * 30      # 30 days ("remember me")
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
+
+DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
+try:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    DATA_DIR = Path(tempfile.gettempdir()) / "oncocare"
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = DATA_DIR / "oncocare.db"
+
+@contextmanager
+def db():
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+def init_db():
+    with db() as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            full_name TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at INTEGER NOT NULL)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS sessions (
+            token_hash TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL)""")
+
+init_db()
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    dk = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1, dklen=32)
+    return f"scrypt${2**14}$8$1${salt.hex()}${dk.hex()}"
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        _, n, r, p, salt_hex, dk_hex = stored.split("$")
+        dk = hashlib.scrypt(password.encode("utf-8"), salt=bytes.fromhex(salt_hex),
+                            n=int(n), r=int(r), p=int(p), dklen=len(dk_hex) // 2)
+        return hmac.compare_digest(dk.hex(), dk_hex)
+    except Exception:
+        return False
+
+DUMMY_HASH = hash_password("dummy-password-for-timing")  # equalises timing for unknown usernames
+
+_HITS: dict = {}
+
+def rate_exceeded(key: str, limit: int, window: int) -> bool:
+    now = time.time()
+    hits = [t for t in _HITS.get(key, []) if now - t < window]
+    _HITS[key] = hits
+    return len(hits) >= limit
+
+def rate_record(key: str) -> None:
+    if len(_HITS) > 10000:
+        now = time.time()
+        for k in list(_HITS):
+            if not _HITS[k] or now - _HITS[k][-1] > 3600:
+                del _HITS[k]
+    _HITS.setdefault(key, []).append(time.time())
+
+def client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[-1].strip()  # last hop = address added by the trusted proxy
+    return request.client.host if request.client else "?"
+
+def is_https(request: Request) -> bool:
+    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https"
+
+def create_session(user_id: int, remember: bool) -> str:
+    token = secrets.token_urlsafe(32)
+    ttl = SESSION_LONG if remember else SESSION_SHORT
+    now = int(time.time())
+    with db() as c:
+        c.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
+        c.execute("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
+                  (hashlib.sha256(token.encode()).hexdigest(), user_id, now + ttl))
+    return token
+
+def set_session_cookie(request: Request, response: Response, token: str, remember: bool) -> None:
+    response.set_cookie(COOKIE_NAME, token, max_age=SESSION_LONG if remember else None,
+                        httponly=True, samesite="lax", secure=is_https(request), path="/")
+
+def user_from_request(request: Request) -> Optional[dict]:
+    token = request.cookies.get(COOKIE_NAME)
+    if not token:
+        return None
+    with db() as c:
+        row = c.execute(
+            "SELECT u.id, u.username, u.full_name FROM sessions s JOIN users u ON u.id = s.user_id "
+            "WHERE s.token_hash = ? AND s.expires_at > ?",
+            (hashlib.sha256(token.encode()).hexdigest(), int(time.time()))).fetchone()
+    return dict(row) if row else None
+
+GUEST = {"id": 0, "username": "guest", "full_name": ""}
+
+def current_user(request: Request) -> dict:
+    if not REQUIRE_LOGIN:
+        return GUEST
+    user = user_from_request(request)
+    if not user:
+        raise HTTPException(status_code=401, detail={"code": "unauthorized"})
+    return user
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    full_name: str = ""
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+    remember: bool = False
+
+@app.get("/auth/me")
+def auth_me(request: Request, response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    user = user_from_request(request) if REQUIRE_LOGIN else GUEST
+    return {"require_login": REQUIRE_LOGIN, "user": user}
+
+@app.post("/auth/register")
+def auth_register(payload: RegisterRequest, request: Request, response: Response):
+    if not REQUIRE_LOGIN:
+        raise HTTPException(status_code=404, detail={"code": "disabled"})
+    rkey = f"reg|{client_ip(request)}"
+    if rate_exceeded(rkey, 10, 3600):
+        raise HTTPException(status_code=429, detail={"code": "too_many_attempts"})
+    rate_record(rkey)
+
+    username = payload.username.strip()
+    if not USERNAME_RE.match(username):
+        raise HTTPException(status_code=422, detail={"code": "invalid_username"})
+    pw = payload.password
+    if len(pw) < 8 or len(pw) > 128 or pw.lower() == username.lower():
+        raise HTTPException(status_code=422, detail={"code": "weak_password"})
+    full_name = " ".join(payload.full_name.split())[:60] or username
+    try:
+        with db() as c:
+            cur = c.execute("INSERT INTO users (username, full_name, password_hash, created_at) VALUES (?, ?, ?, ?)",
+                            (username.lower(), full_name, hash_password(pw), int(time.time())))
+            uid = cur.lastrowid
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail={"code": "username_taken"})
+    set_session_cookie(request, response, create_session(uid, False), False)
+    return {"user": {"id": uid, "username": username.lower(), "full_name": full_name}}
+
+@app.post("/auth/login")
+def auth_login(payload: LoginRequest, request: Request, response: Response):
+    if not REQUIRE_LOGIN:
+        raise HTTPException(status_code=404, detail={"code": "disabled"})
+    username = payload.username.strip().lower()
+    key = f"login|{client_ip(request)}|{username}"
+    if rate_exceeded(key, 5, 600):
+        raise HTTPException(status_code=429, detail={"code": "too_many_attempts"})
+    with db() as c:
+        row = c.execute("SELECT id, username, full_name, password_hash FROM users WHERE username = ?", (username,)).fetchone()
+    ok = verify_password(payload.password[:128], row["password_hash"] if row else DUMMY_HASH)
+    if not row or not ok:
+        rate_record(key)
+        raise HTTPException(status_code=401, detail={"code": "invalid_credentials"})
+    _HITS.pop(key, None)
+    set_session_cookie(request, response, create_session(row["id"], payload.remember), payload.remember)
+    return {"user": {"id": row["id"], "username": row["username"], "full_name": row["full_name"]}}
+
+@app.post("/auth/logout")
+def auth_logout(request: Request, response: Response):
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        with db() as c:
+            c.execute("DELETE FROM sessions WHERE token_hash = ?", (hashlib.sha256(token.encode()).hexdigest(),))
+    response.delete_cookie(COOKIE_NAME, path="/")
+    return {"ok": True}
 
 HOME_HTML = r"""
 <!DOCTYPE html>
@@ -336,6 +534,55 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
   .stat-grid, .cmp-heads { grid-template-columns: 1fr; }
 }
 
+/* Auth */
+.booting .header, .booting .wrap { visibility: hidden; }
+.auth { position: fixed; inset: 0; z-index: 600; display: none; place-items: center; padding: 20px; overflow: auto; background-color: var(--paper);
+  background-image: radial-gradient(900px 500px at 90% -10%, #d9f5ef, transparent 60%), radial-gradient(700px 400px at -10% 100%, #e0ecff, transparent 55%), radial-gradient(var(--line) 1px, transparent 1px); background-size: auto, auto, 22px 22px; }
+.auth.show { display: grid; }
+.auth-card { width: min(960px, 100%); display: grid; grid-template-columns: 1fr 1.08fr; border-radius: 28px; overflow: hidden; background: #fff; border: 1px solid var(--line); box-shadow: 0 30px 80px -30px rgba(18,48,47,.35); animation: rise .5s ease; }
+.auth-side { position: relative; padding: 42px 38px; color: #fff; background: linear-gradient(150deg, #0f7c78, #14a39d 60%, #0891b2); display: flex; flex-direction: column; justify-content: space-between; gap: 26px; overflow: hidden; }
+.auth-side::before { content: ""; position: absolute; width: 320px; height: 320px; border-radius: 50%; background: rgba(255,255,255,.08); right: -110px; top: -130px; }
+.auth-side > * { position: relative; z-index: 1; }
+.auth-brand { display: flex; align-items: center; gap: 12px; font-family: var(--serif); font-size: 1.3rem; font-weight: 600; }
+.auth-side h2 { font-family: var(--serif); font-size: 1.9rem; line-height: 1.2; font-weight: 600; margin: 0 0 12px; letter-spacing: -.01em; }
+.auth-side p { margin: 0 0 18px; opacity: .9; line-height: 1.6; font-size: .92rem; }
+.auth-side ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; font-size: .88rem; font-weight: 500; }
+.auth-side li i { margin-right: 8px; opacity: .9; }
+.auth-ecg { width: 100%; height: 60px; opacity: .7; }
+.auth-ecg path { fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 520; stroke-dashoffset: 520; animation: beat 4.5s linear infinite; }
+.auth-form { padding: 38px 40px 34px; }
+.auth-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 26px; }
+.auth-top .seg button { padding: 8px 18px; }
+.auth-form h3 { font-family: var(--serif); font-size: 1.7rem; font-weight: 600; margin: 0 0 4px; letter-spacing: -.015em; }
+.auth-form .sub { margin: 0 0 22px; color: var(--muted); font-size: .88rem; }
+.afield { margin-bottom: 14px; }
+.afield label { display: block; font-size: .8rem; font-weight: 700; margin-bottom: 6px; }
+.afield input[type=text], .afield input[type=password] { width: 100%; padding: 13px 14px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--paper); color: var(--ink); font-size: .95rem; outline: 0; transition: .18s; }
+.afield input:focus { border-color: var(--teal); background: #fff; box-shadow: 0 0 0 4px rgba(15,124,120,.12); }
+.ahint { display: block; margin-top: 5px; color: var(--muted); font-size: .72rem; line-height: 1.4; }
+.pw { position: relative; }
+.pw input { padding-right: 44px !important; }
+.pw button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 8px 10px; border-radius: 8px; }
+.pw button:hover { color: var(--teal); }
+.pwbar { height: 5px; border-radius: 99px; background: var(--line); margin-top: 8px; overflow: hidden; }
+.pwbar i { display: block; height: 100%; width: 0; border-radius: 99px; transition: .3s; }
+.remember { display: flex; align-items: center; gap: 9px; font-size: .84rem; font-weight: 600; color: var(--ink-2); margin: 4px 0 16px; cursor: pointer; }
+.auth-err { display: none; background: var(--bad-bg); color: #a93232; padding: 11px 14px; border-radius: 12px; font-size: .84rem; font-weight: 600; margin-bottom: 14px; line-height: 1.45; }
+.auth-switch { text-align: center; margin: 18px 0 0; font-size: .86rem; color: var(--ink-2); }
+.auth-switch a { color: var(--teal); font-weight: 700; cursor: pointer; margin-left: 4px; }
+.auth-priv { margin: 16px 0 0; font-size: .72rem; color: var(--muted); text-align: center; line-height: 1.5; }
+#auth[data-mode="login"] .only-reg { display: none; }
+#auth[data-mode="register"] .only-login { display: none; }
+.userchip { display: flex; align-items: center; gap: 10px; padding-left: 14px; border-left: 1px solid var(--line); }
+.avatar { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(145deg, var(--teal-2), var(--teal)); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: .95rem; flex: none; }
+.uname b { display: block; font-size: .82rem; line-height: 1.2; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uname small { color: var(--muted); font-size: .7rem; }
+.userchip .btn-out { border: 1px solid var(--line-2); background: #fff; color: var(--ink-2); width: 36px; height: 36px; border-radius: 10px; cursor: pointer; }
+.userchip .btn-out:hover { color: var(--bad); border-color: var(--bad); }
+@media (max-width: 1180px) { .status { display: none; } }
+@media (max-width: 980px) { .uname { display: none; } .userchip { padding-left: 8px; } }
+@media (max-width: 760px) { .auth-card { grid-template-columns: 1fr; } .auth-side { display: none; } .auth-form { padding: 28px 22px; } }
+
 /* Lab-sheet style print layout (hidden on screen) */
 #printSheet { display: none; }
 .ps { color: #111; font-size: 10pt; line-height: 1.4; }
@@ -380,7 +627,7 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
 }
 </style>
 </head>
-<body>
+<body class="booting">
 
 <header class="header">
   <div class="header-in">
@@ -398,6 +645,11 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
     <div class="spacer"></div>
     <div class="lang"><button data-lang="vi">VI</button><button data-lang="en">EN</button></div>
     <div class="status"><span class="pulse"></span><span id="verText">…</span></div>
+    <div class="userchip" id="userChip" style="display:none">
+      <div class="avatar" id="userAv">?</div>
+      <div class="uname"><b id="userName"></b><small id="userHandle"></small></div>
+      <button class="btn-out" id="btnLogout" onclick="logout()"><i class="fa-solid fa-right-from-bracket"></i></button>
+    </div>
   </div>
 </header>
 
@@ -608,6 +860,48 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
 
 <div class="modal" id="modal"><div class="modal-card" id="modalCard"></div></div>
 <div class="ps" id="printSheet"></div>
+
+<div class="auth" id="auth" data-mode="login">
+  <div class="auth-card">
+    <div class="auth-side">
+      <div class="auth-brand"><div class="logo" style="background:rgba(255,255,255,.2);box-shadow:none"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M12 4v16M4 12h16"/></svg></div> OncoCare AI</div>
+      <div>
+        <h2 data-i18n="au_side_h"></h2>
+        <p data-i18n="au_side_p"></p>
+        <ul>
+          <li><i class="fa-solid fa-circle-check"></i><span data-i18n="au_f1"></span></li>
+          <li><i class="fa-solid fa-circle-check"></i><span data-i18n="au_f2"></span></li>
+          <li><i class="fa-solid fa-circle-check"></i><span data-i18n="au_f3"></span></li>
+        </ul>
+      </div>
+      <svg class="auth-ecg" viewBox="0 0 520 60" preserveAspectRatio="none"><path d="M0 34 H90 L100 34 L110 10 L122 54 L134 22 L142 34 H300 L310 34 L320 8 L332 56 L344 24 L352 34 H520"/></svg>
+    </div>
+    <div class="auth-form">
+      <div class="auth-top">
+        <div class="seg" id="authSeg"><button type="button" data-m="login"></button><button type="button" data-m="register"></button></div>
+        <div class="lang"><button data-lang="vi">VI</button><button data-lang="en">EN</button></div>
+      </div>
+      <h3 id="auTitle"></h3>
+      <p class="sub" id="auSub"></p>
+      <form id="authForm" novalidate>
+        <div class="afield only-reg"><label for="auName" data-i18n="au_name"></label><input id="auName" type="text" autocomplete="name" maxlength="60"></div>
+        <div class="afield"><label for="auUser" data-i18n="au_user"></label><input id="auUser" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32"><span class="ahint only-reg" data-i18n="au_hint_user"></span></div>
+        <div class="afield">
+          <label for="auPass" data-i18n="au_pass"></label>
+          <div class="pw"><input id="auPass" type="password" maxlength="128"><button type="button" id="pwTog" tabindex="-1"><i class="fa-regular fa-eye"></i></button></div>
+          <div class="pwbar only-reg"><i id="pwBar"></i></div>
+          <span class="ahint only-reg" data-i18n="au_hint_pass"></span>
+        </div>
+        <div class="afield only-reg"><label for="auPass2" data-i18n="au_pass2"></label><input id="auPass2" type="password" autocomplete="new-password" maxlength="128"></div>
+        <label class="remember only-login"><input type="checkbox" id="auRemember"> <span data-i18n="au_remember"></span></label>
+        <div class="auth-err" id="authErr"></div>
+        <button type="submit" class="btn btn-primary" id="auBtn"></button>
+      </form>
+      <p class="auth-switch"><span id="auSwitchTxt"></span><a id="auSwitchLnk"></a></p>
+      <p class="auth-priv"><i class="fa-solid fa-lock"></i> <span data-i18n="au_privacy"></span></p>
+    </div>
+  </div>
+</div>
 <div class="toasts" id="toasts"></div>
 
 <script>
@@ -656,6 +950,17 @@ ps_code:'Mã phiếu', ps_date:'Ngày giờ', ps_info:'I. Thông tin bệnh nhâ
 ps_idx:'Chỉ số', ps_mean:'Trung bình', ps_se:'Sai số chuẩn', ps_worst:'Lớn nhất', ps_ref:'Tham chiếu lành tính (TB)',
 ps_ref_note:'Cột tham chiếu là giá trị trung bình của nhóm lành tính trong bộ dữ liệu Wisconsin, không phải khoảng bình thường lâm sàng.',
 ps_prob:'Xác suất ác tính', ps_sign_hint:'(Ký, ghi rõ họ tên)', ps_model:'Mô hình',
+au_login:'Đăng nhập', au_register:'Đăng ký', au_login_t:'Chào mừng trở lại', au_login_s:'Đăng nhập để tiếp tục sử dụng hệ thống.',
+au_register_t:'Tạo tài khoản mới', au_register_s:'Chỉ mất vài giây, không cần email.',
+au_name:'Họ và tên', au_user:'Tên đăng nhập', au_pass:'Mật khẩu', au_pass2:'Nhập lại mật khẩu', au_remember:'Ghi nhớ đăng nhập 30 ngày',
+au_btn_login:'Đăng nhập', au_btn_register:'Tạo tài khoản', au_have:'Đã có tài khoản?', au_no:'Chưa có tài khoản?',
+au_hint_user:'3–32 ký tự: chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.', au_hint_pass:'Tối thiểu 8 ký tự. Nên kết hợp chữ hoa, số và ký hiệu.',
+au_logout:'Đăng xuất', au_side_h:'Hệ thống hỗ trợ chẩn đoán dành riêng cho bạn', au_side_p:'Tài khoản giúp tách riêng nhật ký của từng người dùng, kể cả khi dùng chung một máy.',
+au_f1:'Dự đoán nhanh từ 30 chỉ số tế bào học', au_f2:'Phiếu kết quả in được như tờ xét nghiệm', au_f3:'Nhật ký riêng cho từng tài khoản',
+au_privacy:'Dữ liệu bệnh nhân chỉ lưu trên trình duyệt của bạn, không gửi lên máy chủ.',
+e_invalid_username:'Tên đăng nhập phải dài 3–32 ký tự, chỉ gồm chữ, số và . _ -', e_weak_password:'Mật khẩu cần từ 8 đến 128 ký tự và không được trùng tên đăng nhập.',
+e_mismatch:'Hai mật khẩu không khớp.', e_username_taken:'Tên đăng nhập này đã tồn tại.', e_invalid_credentials:'Sai tên đăng nhập hoặc mật khẩu.',
+e_too_many_attempts:'Thử quá nhiều lần. Vui lòng đợi vài phút rồi thử lại.', e_network:'Không thể kết nối máy chủ.', e_generic:'Có lỗi xảy ra, vui lòng thử lại.',
 t_meta:'Không tải được metadata từ máy chủ.', t_fill:'Có {0} ô trống hoặc không hợp lệ.', t_server:'Máy chủ trả về lỗi {0}', t_net:'Không thể kết nối máy chủ.',
 t_lb:'Đã nạp mẫu lành tính', t_lm:'Đã nạp mẫu ác tính', t_age:'Tuổi phải từ 0 đến 120.', status:'Sẵn sàng · SVM v{0}'
 },
@@ -702,6 +1007,17 @@ ps_code:'Report no.', ps_date:'Date / time', ps_info:'I. Patient information', p
 ps_idx:'Feature', ps_mean:'Mean', ps_se:'Std. error', ps_worst:'Worst', ps_ref:'Benign ref. (avg)',
 ps_ref_note:'The reference column is the benign-group average in the Wisconsin dataset, not a clinical normal range.',
 ps_prob:'Malignant probability', ps_sign_hint:'(Signature, full name)', ps_model:'Model',
+au_login:'Log in', au_register:'Sign up', au_login_t:'Welcome back', au_login_s:'Log in to continue using the system.',
+au_register_t:'Create an account', au_register_s:'Takes a few seconds, no email needed.',
+au_name:'Full name', au_user:'Username', au_pass:'Password', au_pass2:'Confirm password', au_remember:'Keep me logged in for 30 days',
+au_btn_login:'Log in', au_btn_register:'Create account', au_have:'Already have an account?', au_no:"Don't have an account?",
+au_hint_user:'3–32 characters: letters, digits, dot, underscore or hyphen.', au_hint_pass:'At least 8 characters. Mix upper-case, digits and symbols.',
+au_logout:'Log out', au_side_h:'A decision-support system made for you', au_side_p:'Accounts keep each user\'s case history separate, even on a shared computer.',
+au_f1:'Fast predictions from 30 cytological features', au_f2:'Printable result sheet like a lab report', au_f3:'A separate history for every account',
+au_privacy:'Patient data stays in your browser and is never sent to the server.',
+e_invalid_username:'Username must be 3–32 characters: letters, digits and . _ - only.', e_weak_password:'Password must be 8–128 characters and different from the username.',
+e_mismatch:'The two passwords do not match.', e_username_taken:'This username is already taken.', e_invalid_credentials:'Wrong username or password.',
+e_too_many_attempts:'Too many attempts. Please wait a few minutes and try again.', e_network:'Cannot reach the server.', e_generic:'Something went wrong, please try again.',
 t_meta:'Could not load metadata from the server.', t_fill:'{0} field(s) are empty or invalid.', t_server:'Server returned error {0}', t_net:'Cannot reach the server.',
 t_lb:'Benign sample loaded', t_lm:'Malignant sample loaded', t_age:'Age must be between 0 and 120.', status:'Ready · SVM v{0}'
 }};
@@ -805,7 +1121,7 @@ function applyLang() {
   $('lowTxt').textContent = t('meter_low'); $('highTxt').textContent = t('meter_high');
   document.querySelectorAll('[data-f]').forEach(el => el.textContent = fName(el.dataset.f));
   document.querySelectorAll('[data-fd]').forEach(el => el.textContent = fDesc(el.dataset.fd));
-  setRunBtn(false); renderGuide($('guideSearch').value); renderHistory(); renderStats(); renderBatch(); updateFill();
+  setRunBtn(false); renderGuide($('guideSearch').value); renderHistory(); renderStats(); renderBatch(); updateFill(); renderAuth();
   if (shown) renderResult(false);
 }
 document.querySelectorAll('.lang button').forEach(b => b.onclick = () => { lang = b.dataset.lang; try { localStorage.setItem('onco-lang', lang); } catch (e) {} applyLang(); });
@@ -821,8 +1137,9 @@ async function init() {
     const d = await (await fetch('/metadata')).json();
     featureNames = d.feature_names; modelVer = d.model_version || ''; serverWarn = d.warning || '';
   } catch (e) { toast(t('t_meta')); return; }
-  try { const r = await fetch('/reference'); if (r.ok) REF = await r.json(); } catch (e) {}
+  try { const r = await fetch('/reference'); if (r.status === 401) { location.reload(); return; } if (r.ok) REF = await r.json(); } catch (e) {}
   renderInputs(); applyLang(); setValues(sampleBenign);
+  if (!$('pDoc').value) $('pDoc').value = defaultDoctor();
 }
 
 /* ================= Form ================= */
@@ -860,7 +1177,8 @@ function setValues(data) {
   updateFill(); drawCell();
 }
 function loadSampleData(type) { setValues(type === 'malignant' ? sampleMalignant : sampleBenign); toast(t(type === 'malignant' ? 't_lm' : 't_lb'), true); }
-function clearForm() { setValues({}); setPatient({}); $('resultCard').classList.remove('show'); shown = null; }
+function clearForm() { setValues({}); setPatient({ doctor: defaultDoctor() }); $('resultCard').classList.remove('show'); shown = null; }
+function defaultDoctor() { return USER && USER.id && USER.full_name ? USER.full_name : ''; }
 const getPatient = () => ({ name: $('pName').value.trim(), age: $('pAge').value.trim(), pid: $('pId').value.trim(), doctor: $('pDoc').value.trim(), note: $('pNote').value.trim() });
 function setPatient(p) { $('pName').value = p.name || ''; $('pAge').value = p.age || ''; $('pId').value = p.pid || ''; $('pDoc').value = p.doctor || ''; $('pNote').value = p.note || ''; }
 
@@ -1012,6 +1330,7 @@ $('predictionForm').addEventListener('submit', async ev => {
   setRunBtn(true);
   try {
     const res = await fetch('/predict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ features: obj }) });
+    if (res.status === 401) { location.reload(); return; }
     if (!res.ok) throw new Error(t('t_server', res.status));
     const d = await res.json();
     const entry = { id: nextId(), ts: Date.now(), patient: getPatient(), mal: d.predicted_label !== 'benign', pm: d.probability_malignant, pb: d.probability_benign, features: obj, warn: countWarn() };
@@ -1022,11 +1341,19 @@ $('predictionForm').addEventListener('submit', async ev => {
 });
 
 /* ================= History ================= */
+function histKey() { return 'onco-history:' + (USER ? USER.id : 'anon'); }
 function loadHistory() {
-  try { historyList = JSON.parse(localStorage.getItem('onco-history') || '[]'); } catch (e) { historyList = []; }
+  try {
+    let raw = localStorage.getItem(histKey());
+    if (raw === null) {  /* one-time move of history saved before accounts existed */
+      const old = localStorage.getItem('onco-history');
+      if (old !== null) { raw = old; localStorage.setItem(histKey(), old); localStorage.removeItem('onco-history'); }
+    }
+    historyList = JSON.parse(raw || '[]');
+  } catch (e) { historyList = []; }
   caseSeq = historyList.reduce((m, h) => Math.max(m, parseInt(String(h.id).replace(/\D/g, '')) || 0), 0);
 }
-function saveHistory() { try { localStorage.setItem('onco-history', JSON.stringify(historyList)); } catch (e) {} }
+function saveHistory() { try { localStorage.setItem(histKey(), JSON.stringify(historyList)); } catch (e) {} }
 function renderHistory() {
   const tb = $('historyTableBody'), nc = $('navCount');
   nc.style.display = historyList.length ? 'inline-block' : 'none'; nc.textContent = historyList.length;
@@ -1192,6 +1519,7 @@ async function runBatch() {
   const b = $('btnBatchRun'); b.disabled = true;
   try {
     const res = await fetch('/predict_batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: batchRows.map(r => r.features) }) });
+    if (res.status === 401) { location.reload(); return; }
     if (!res.ok) throw new Error(t('t_server', res.status));
     batchResults = (await res.json()).results; renderBatch();
   } catch (e) { toast(e.message || t('t_net')); }
@@ -1217,7 +1545,75 @@ const drop = $('drop');
 drop.addEventListener('drop', e => handleFile(e.dataTransfer.files[0]));
 $('fileIn').addEventListener('change', e => { handleFile(e.target.files[0]); e.target.value = ''; });
 
-init();
+/* ================= Auth ================= */
+let USER = null, REQUIRE_LOGIN = true, authMode = 'login';
+function renderAuth() {
+  const reg = authMode === 'register';
+  $('auth').dataset.mode = authMode;
+  $('auTitle').textContent = t(reg ? 'au_register_t' : 'au_login_t');
+  $('auSub').textContent = t(reg ? 'au_register_s' : 'au_login_s');
+  $('auBtn').innerHTML = '<i class="fa-solid ' + (reg ? 'fa-user-plus' : 'fa-right-to-bracket') + '"></i> ' + t(reg ? 'au_btn_register' : 'au_btn_login');
+  $('auSwitchTxt').textContent = t(reg ? 'au_have' : 'au_no');
+  $('auSwitchLnk').textContent = t(reg ? 'au_login' : 'au_register');
+  document.querySelectorAll('#authSeg button').forEach(b => { b.classList.toggle('on', b.dataset.m === authMode); b.textContent = t(b.dataset.m === 'login' ? 'au_login' : 'au_register'); });
+  $('auPass').autocomplete = reg ? 'new-password' : 'current-password';
+  $('btnLogout').title = t('au_logout');
+}
+function setAuthMode(m) { authMode = m; $('authErr').style.display = 'none'; renderAuth(); }
+document.querySelectorAll('#authSeg button').forEach(b => b.onclick = () => setAuthMode(b.dataset.m));
+$('auSwitchLnk').onclick = () => setAuthMode(authMode === 'login' ? 'register' : 'login');
+$('pwTog').onclick = () => {
+  const show = $('auPass').type === 'password';
+  $('auPass').type = show ? 'text' : 'password'; $('auPass2').type = show ? 'text' : 'password';
+  $('pwTog').innerHTML = '<i class="fa-regular ' + (show ? 'fa-eye-slash' : 'fa-eye') + '"></i>';
+};
+$('auPass').addEventListener('input', () => {
+  const p = $('auPass').value;
+  const score = (p.length >= 8) + (p.length >= 12) + (/[a-z]/.test(p) && /[A-Z]/.test(p)) + /\d/.test(p) + /[^A-Za-z0-9]/.test(p);
+  const bar = $('pwBar'); bar.style.width = (score / 5 * 100) + '%';
+  bar.style.background = score <= 2 ? '#cf4545' : score <= 3 ? '#e8b23c' : '#2b9a6a';
+});
+function showAuthErr(code) {
+  const e = $('authErr'); const txt = t('e_' + code);
+  e.textContent = txt === 'e_' + code ? t('e_generic') : txt; e.style.display = 'block';
+}
+$('authForm').addEventListener('submit', async ev => {
+  ev.preventDefault(); $('authErr').style.display = 'none';
+  const u = $('auUser').value.trim(), p = $('auPass').value, reg = authMode === 'register';
+  if (reg) {
+    if (!/^[A-Za-z0-9_.-]{3,32}$/.test(u)) return showAuthErr('invalid_username');
+    if (p.length < 8 || p.length > 128 || p.toLowerCase() === u.toLowerCase()) return showAuthErr('weak_password');
+    if (p !== $('auPass2').value) return showAuthErr('mismatch');
+  } else if (!u || !p) return showAuthErr('invalid_credentials');
+  const btn = $('auBtn'); btn.disabled = true;
+  try {
+    const body = reg ? { username: u, password: p, full_name: $('auName').value.trim() } : { username: u, password: p, remember: $('auRemember').checked };
+    const res = await fetch('/auth/' + authMode, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (res.ok) { location.reload(); return; }
+    let code = 'generic';
+    try { const d = await res.json(); code = (d.detail && d.detail.code) || 'generic'; } catch (e) {}
+    showAuthErr(code);
+  } catch (e) { showAuthErr('network'); }
+  finally { btn.disabled = false; }
+});
+function setupUserChip() {
+  if (!REQUIRE_LOGIN || !USER) { $('userChip').style.display = 'none'; return; }
+  const nm = USER.full_name || USER.username;
+  $('userChip').style.display = 'flex'; $('userAv').textContent = nm.trim().charAt(0).toUpperCase();
+  $('userName').textContent = nm; $('userHandle').textContent = '@' + USER.username;
+}
+async function logout() { try { await fetch('/auth/logout', { method: 'POST' }); } catch (e) {} location.reload(); }
+
+async function boot() {
+  applyLang();
+  let me = { require_login: true, user: null };
+  try { me = await (await fetch('/auth/me')).json(); } catch (e) {}
+  REQUIRE_LOGIN = me.require_login; USER = me.user;
+  document.body.classList.remove('booting');
+  if (!USER) { $('auth').classList.add('show'); return; }
+  setupUserChip(); init();
+}
+boot();
 </script>
 </body>
 </html>
@@ -1236,11 +1632,11 @@ def get_metadata():
     return metadata
 
 @app.get("/reference")
-def get_reference():
+def get_reference(user: dict = Depends(current_user)):
     return reference
 
 @app.post("/predict", response_model=PredictionResponse)
-def predict(payload: PredictionRequest):
+def predict(payload: PredictionRequest, user: dict = Depends(current_user)):
     x = build_vector(payload)
     pred = int(model.predict(x)[0])
     proba = model.predict_proba(x)[0]
@@ -1256,7 +1652,7 @@ def predict(payload: PredictionRequest):
     )
 
 @app.post("/predict_batch")
-def predict_batch(payload: BatchRequest):
+def predict_batch(payload: BatchRequest, user: dict = Depends(current_user)):
     expected = metadata["feature_names"]
     if not payload.rows:
         raise HTTPException(status_code=422, detail="rows must not be empty")
