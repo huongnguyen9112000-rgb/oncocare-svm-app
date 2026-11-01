@@ -448,7 +448,7 @@ button, input, textarea { font-family: inherit; }
 
 /* Predict */
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; }
-.aside { position: sticky; top: 94px; display: grid; gap: 16px; }
+.aside { position: sticky; top: 94px; display: grid; gap: 16px; max-height: calc(100vh - 110px); overflow-y: auto; padding: 2px 4px 6px 2px; scrollbar-width: thin; }
 .aside .card { padding: 22px; }
 .aside h4 { margin: 0 0 4px; font-family: var(--serif); font-size: 1.08rem; font-weight: 600; }
 .aside .sub { color: var(--muted); font-size: .76rem; margin: 0 0 14px; line-height: 1.5; }
@@ -609,7 +609,7 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
 .toast { background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--bad); padding: 14px 18px; border-radius: 12px; box-shadow: 0 14px 34px -10px rgba(18,48,47,.25); font-size: .86rem; font-weight: 600; max-width: 340px; animation: rise .3s; }
 .toast.ok { border-left-color: var(--ok); }
 
-@media (max-width: 1080px) { .layout { grid-template-columns: 1fr; } .aside { position: static; order: -1; grid-template-columns: 1fr 1fr; } }
+@media (max-width: 1080px) { .layout { grid-template-columns: 1fr; } .aside { position: static; order: -1; grid-template-columns: 1fr 1fr; max-height: none; overflow: visible; padding: 0; } }
 @media (max-width: 860px) {
   .header-in { padding: 0 14px; gap: 10px; height: 64px; }
   .brand small, .brand b { display: none; }
@@ -682,7 +682,8 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
 .uname small { color: var(--muted); font-size: .7rem; }
 .userchip .btn-out { border: 1px solid var(--line-2); background: #fff; color: var(--ink-2); width: 36px; height: 36px; border-radius: 10px; cursor: pointer; }
 .userchip .btn-out:hover { color: var(--bad); border-color: var(--bad); }
-@media (max-width: 1180px) { .status { display: none; } }
+@media (max-width: 1400px) { .status { display: none; } .header-in { gap: 18px; } .tabs a { padding: 0 11px; } }
+.brand > div { white-space: nowrap; }
 @media (max-width: 980px) { .uname { display: none; } .userchip { padding-left: 8px; } }
 @media (max-width: 760px) { .auth-card { grid-template-columns: 1fr; } .auth-side { display: none; } .auth-form { padding: 28px 22px; } }
 
@@ -803,6 +804,13 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
 
       <aside class="aside">
         <div class="card">
+          <h4 data-i18n="k_title"></h4>
+          <p class="sub" data-i18n="k_sub"></p>
+          <div class="kgrid" id="kernelGrid"></div>
+          <div class="kinfo" id="kernelInfo"></div>
+        </div>
+
+        <div class="card">
           <h4 data-i18n="sim_title"></h4>
           <p class="sub" data-i18n="sim_sub"></p>
           <div class="cell-box">
@@ -819,13 +827,6 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
             <div><small data-i18n="sim_c"></small><b id="mC">—</b></div>
           </div>
           <div class="legend-note"><i></i> <span data-i18n="sim_ref"></span></div>
-        </div>
-
-        <div class="card">
-          <h4 data-i18n="k_title"></h4>
-          <p class="sub" data-i18n="k_sub"></p>
-          <div class="kgrid" id="kernelGrid"></div>
-          <div class="kinfo" id="kernelInfo"></div>
         </div>
 
         <div class="card">
