@@ -954,11 +954,11 @@ au_login:'Đăng nhập', au_register:'Đăng ký', au_login_t:'Chào mừng tr�
 au_register_t:'Tạo tài khoản mới', au_register_s:'Chỉ mất vài giây, không cần email.',
 au_name:'Họ và tên', au_user:'Tên đăng nhập', au_pass:'Mật khẩu', au_pass2:'Nhập lại mật khẩu', au_remember:'Ghi nhớ đăng nhập 30 ngày',
 au_btn_login:'Đăng nhập', au_btn_register:'Tạo tài khoản', au_have:'Đã có tài khoản?', au_no:'Chưa có tài khoản?',
-au_hint_user:'3–32 ký tự: chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.', au_hint_pass:'Tối thiểu 8 ký tự. Nên kết hợp chữ hoa, số và ký hiệu.',
+au_hint_user:'3–32 ký tự, viết liền không dấu: chữ a–z, số, dấu chấm, gạch dưới hoặc gạch ngang. Ví dụ: lanhuong', au_suggest:'Gợi ý', au_hint_pass:'Tối thiểu 8 ký tự. Nên kết hợp chữ hoa, số và ký hiệu.',
 au_logout:'Đăng xuất', au_side_h:'Hệ thống hỗ trợ chẩn đoán dành riêng cho bạn', au_side_p:'Tài khoản giúp tách riêng nhật ký của từng người dùng, kể cả khi dùng chung một máy.',
 au_f1:'Dự đoán nhanh từ 30 chỉ số tế bào học', au_f2:'Phiếu kết quả in được như tờ xét nghiệm', au_f3:'Nhật ký riêng cho từng tài khoản',
 au_privacy:'Dữ liệu bệnh nhân chỉ lưu trên trình duyệt của bạn, không gửi lên máy chủ.',
-e_invalid_username:'Tên đăng nhập phải dài 3–32 ký tự, chỉ gồm chữ, số và . _ -', e_weak_password:'Mật khẩu cần từ 8 đến 128 ký tự và không được trùng tên đăng nhập.',
+e_invalid_username:'Tên đăng nhập phải viết liền, không dấu tiếng Việt, không có khoảng trắng; chỉ gồm chữ a–z, số và . _ - (3–32 ký tự).', e_weak_password:'Mật khẩu cần từ 8 đến 128 ký tự và không được trùng tên đăng nhập.',
 e_mismatch:'Hai mật khẩu không khớp.', e_username_taken:'Tên đăng nhập này đã tồn tại.', e_invalid_credentials:'Sai tên đăng nhập hoặc mật khẩu.',
 e_too_many_attempts:'Thử quá nhiều lần. Vui lòng đợi vài phút rồi thử lại.', e_network:'Không thể kết nối máy chủ.', e_generic:'Có lỗi xảy ra, vui lòng thử lại.',
 t_meta:'Không tải được metadata từ máy chủ.', t_fill:'Có {0} ô trống hoặc không hợp lệ.', t_server:'Máy chủ trả về lỗi {0}', t_net:'Không thể kết nối máy chủ.',
@@ -1011,11 +1011,11 @@ au_login:'Log in', au_register:'Sign up', au_login_t:'Welcome back', au_login_s:
 au_register_t:'Create an account', au_register_s:'Takes a few seconds, no email needed.',
 au_name:'Full name', au_user:'Username', au_pass:'Password', au_pass2:'Confirm password', au_remember:'Keep me logged in for 30 days',
 au_btn_login:'Log in', au_btn_register:'Create account', au_have:'Already have an account?', au_no:"Don't have an account?",
-au_hint_user:'3–32 characters: letters, digits, dot, underscore or hyphen.', au_hint_pass:'At least 8 characters. Mix upper-case, digits and symbols.',
+au_hint_user:'3–32 characters, no spaces or accents: letters a–z, digits, dot, underscore or hyphen. Example: lanhuong', au_suggest:'Suggestion', au_hint_pass:'At least 8 characters. Mix upper-case, digits and symbols.',
 au_logout:'Log out', au_side_h:'A decision-support system made for you', au_side_p:'Accounts keep each user\'s case history separate, even on a shared computer.',
 au_f1:'Fast predictions from 30 cytological features', au_f2:'Printable result sheet like a lab report', au_f3:'A separate history for every account',
 au_privacy:'Patient data stays in your browser and is never sent to the server.',
-e_invalid_username:'Username must be 3–32 characters: letters, digits and . _ - only.', e_weak_password:'Password must be 8–128 characters and different from the username.',
+e_invalid_username:'Username must have no spaces or accented letters; only a–z, digits and . _ - (3–32 characters).', e_weak_password:'Password must be 8–128 characters and different from the username.',
 e_mismatch:'The two passwords do not match.', e_username_taken:'This username is already taken.', e_invalid_credentials:'Wrong username or password.',
 e_too_many_attempts:'Too many attempts. Please wait a few minutes and try again.', e_network:'Cannot reach the server.', e_generic:'Something went wrong, please try again.',
 t_meta:'Could not load metadata from the server.', t_fill:'{0} field(s) are empty or invalid.', t_server:'Server returned error {0}', t_net:'Cannot reach the server.',
@@ -1178,7 +1178,7 @@ function setValues(data) {
 }
 function loadSampleData(type) { setValues(type === 'malignant' ? sampleMalignant : sampleBenign); toast(t(type === 'malignant' ? 't_lm' : 't_lb'), true); }
 function clearForm() { setValues({}); setPatient({ doctor: defaultDoctor() }); $('resultCard').classList.remove('show'); shown = null; }
-function defaultDoctor() { return USER && USER.id && USER.full_name ? USER.full_name : ''; }
+function defaultDoctor() { return ''; }
 const getPatient = () => ({ name: $('pName').value.trim(), age: $('pAge').value.trim(), pid: $('pId').value.trim(), doctor: $('pDoc').value.trim(), note: $('pNote').value.trim() });
 function setPatient(p) { $('pName').value = p.name || ''; $('pAge').value = p.age || ''; $('pId').value = p.pid || ''; $('pDoc').value = p.doctor || ''; $('pNote').value = p.note || ''; }
 
@@ -1562,6 +1562,11 @@ function renderAuth() {
 function setAuthMode(m) { authMode = m; $('authErr').style.display = 'none'; renderAuth(); }
 document.querySelectorAll('#authSeg button').forEach(b => b.onclick = () => setAuthMode(b.dataset.m));
 $('auSwitchLnk').onclick = () => setAuthMode(authMode === 'login' ? 'register' : 'login');
+/* Suggest a valid username from the full name (strip Vietnamese accents and spaces) */
+const slugUser = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().replace(/[^a-z0-9._-]+/g, '').slice(0, 32);
+let userTouched = false;
+$('auUser').addEventListener('input', () => { userTouched = $('auUser').value !== ''; });
+$('auName').addEventListener('input', () => { if (!userTouched) $('auUser').value = slugUser($('auName').value); });
 $('pwTog').onclick = () => {
   const show = $('auPass').type === 'password';
   $('auPass').type = show ? 'text' : 'password'; $('auPass2').type = show ? 'text' : 'password';
@@ -1581,7 +1586,12 @@ $('authForm').addEventListener('submit', async ev => {
   ev.preventDefault(); $('authErr').style.display = 'none';
   const u = $('auUser').value.trim(), p = $('auPass').value, reg = authMode === 'register';
   if (reg) {
-    if (!/^[A-Za-z0-9_.-]{3,32}$/.test(u)) return showAuthErr('invalid_username');
+    if (!/^[A-Za-z0-9_.-]{3,32}$/.test(u)) {
+      showAuthErr('invalid_username');
+      const s = slugUser(u);
+      if (s.length >= 3) $('authErr').textContent += ' ' + t('au_suggest') + ': ' + s;
+      return;
+    }
     if (p.length < 8 || p.length > 128 || p.toLowerCase() === u.toLowerCase()) return showAuthErr('weak_password');
     if (p !== $('auPass2').value) return showAuthErr('mismatch');
   } else if (!u || !p) return showAuthErr('invalid_credentials');
