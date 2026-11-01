@@ -448,7 +448,7 @@ button, input, textarea { font-family: inherit; }
 
 /* Predict */
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; }
-.aside { position: sticky; top: 94px; display: grid; gap: 16px; max-height: calc(100vh - 110px); overflow-y: auto; padding: 2px 4px 6px 2px; scrollbar-width: thin; }
+.aside { position: sticky; top: 94px; display: grid; gap: 16px; }
 .aside .card { padding: 22px; }
 .aside h4 { margin: 0 0 4px; font-family: var(--serif); font-size: 1.08rem; font-weight: 600; }
 .aside .sub { color: var(--muted); font-size: .76rem; margin: 0 0 14px; line-height: 1.5; }
@@ -609,7 +609,7 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
 .toast { background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--bad); padding: 14px 18px; border-radius: 12px; box-shadow: 0 14px 34px -10px rgba(18,48,47,.25); font-size: .86rem; font-weight: 600; max-width: 340px; animation: rise .3s; }
 .toast.ok { border-left-color: var(--ok); }
 
-@media (max-width: 1080px) { .layout { grid-template-columns: 1fr; } .aside { position: static; order: -1; grid-template-columns: 1fr 1fr; max-height: none; overflow: visible; padding: 0; } }
+@media (max-width: 1080px) { .layout { grid-template-columns: 1fr; } .aside { position: static; order: -1; grid-template-columns: 1fr 1fr; } }
 @media (max-width: 860px) {
   .header-in { padding: 0 14px; gap: 10px; height: 64px; }
   .brand small, .brand b { display: none; }
@@ -636,6 +636,14 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
 .kinfo .km small { display: block; font-size: .58rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; }
 .kinfo .km b { font-family: var(--mono); font-size: .82rem; font-weight: 500; }
 .kinfo .kn { color: var(--muted); font-size: .68rem; }
+.kbar { padding: 20px 24px; margin-bottom: 22px; }
+.kbar h4 { margin: 0 0 4px; font-family: var(--serif); font-size: 1.08rem; font-weight: 600; }
+.kbar .sub { margin: 0 0 14px; color: var(--muted); font-size: .8rem; line-height: 1.5; }
+.kbar .kgrid { grid-template-columns: repeat(6, 1fr); }
+.kbar .kinfo { font-size: .82rem; }
+.kbar .kinfo .km { max-width: 460px; }
+@media (max-width: 1100px) { .kbar .kgrid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 560px) { .kbar .kgrid { grid-template-columns: repeat(2, 1fr); } }
 
 /* Auth */
 .booting .header, .booting .wrap { visibility: hidden; }
@@ -682,7 +690,8 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
 .uname small { color: var(--muted); font-size: .7rem; }
 .userchip .btn-out { border: 1px solid var(--line-2); background: #fff; color: var(--ink-2); width: 36px; height: 36px; border-radius: 10px; cursor: pointer; }
 .userchip .btn-out:hover { color: var(--bad); border-color: var(--bad); }
-@media (max-width: 1400px) { .status { display: none; } .header-in { gap: 18px; } .tabs a { padding: 0 11px; } }
+@media (max-width: 1400px) { #verText { display: none; } .status { padding: 8px 12px; } .header-in { gap: 18px; } .tabs a { padding: 0 11px; } }
+@media (max-width: 1100px) { .tabs a span.t { display: none; } }
 .brand > div { white-space: nowrap; }
 @media (max-width: 980px) { .uname { display: none; } .userchip { padding-left: 8px; } }
 @media (max-width: 760px) { .auth-card { grid-template-columns: 1fr; } .auth-side { display: none; } .auth-form { padding: 28px 22px; } }
@@ -775,6 +784,13 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
   <div id="tab-predict" class="tab active">
     <div class="page-head"><div><h2 data-i18n="pred_title"></h2><p data-i18n="pred_sub"></p></div></div>
 
+    <div class="card kbar" id="kernelCard">
+      <h4 data-i18n="k_title"></h4>
+      <p class="sub" data-i18n="k_sub"></p>
+      <div class="kgrid" id="kernelGrid"></div>
+      <div class="kinfo" id="kernelInfo"></div>
+    </div>
+
     <div class="layout">
       <form id="predictionForm" novalidate>
         <div class="card group g-pat">
@@ -803,13 +819,6 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--teal); cur
       </form>
 
       <aside class="aside">
-        <div class="card">
-          <h4 data-i18n="k_title"></h4>
-          <p class="sub" data-i18n="k_sub"></p>
-          <div class="kgrid" id="kernelGrid"></div>
-          <div class="kinfo" id="kernelInfo"></div>
-        </div>
-
         <div class="card">
           <h4 data-i18n="sim_title"></h4>
           <p class="sub" data-i18n="sim_sub"></p>
@@ -1080,7 +1089,7 @@ au_privacy:'Dữ liệu bệnh nhân chỉ lưu trên trình duyệt của bạn
 e_invalid_username:'Tên đăng nhập phải viết liền, không dấu tiếng Việt, không có khoảng trắng; chỉ gồm chữ a–z, số và . _ - (3–32 ký tự).', e_weak_password:'Mật khẩu cần từ 8 đến 128 ký tự và không được trùng tên đăng nhập.',
 e_mismatch:'Hai mật khẩu không khớp.', e_username_taken:'Tên đăng nhập này đã tồn tại.', e_invalid_credentials:'Sai tên đăng nhập hoặc mật khẩu.',
 e_too_many_attempts:'Thử quá nhiều lần. Vui lòng đợi vài phút rồi thử lại.', e_network:'Không thể kết nối máy chủ.', e_generic:'Có lỗi xảy ra, vui lòng thử lại.',
-k_title:'Kernel của SVM', k_sub:'Chọn hàm kernel dùng để phân loại. Thử nhiều kernel để xem kết quả có ổn định không.',
+k_loading:'Đang tải danh sách kernel…', k_err:'Không tải được danh sách kernel. Hãy tải lại trang (Ctrl+F5).', k_title:'Kernel của SVM', k_sub:'Chọn hàm kernel dùng để phân loại. Thử nhiều kernel để xem kết quả có ổn định không.',
 k_def:'Mặc định', k_training:'Đang huấn luyện các kernel còn lại…', k_wait:'Các kernel khác chưa huấn luyện xong, vui lòng đợi vài giây rồi thử lại.',
 k_linear:'Ranh giới phân loại là một siêu phẳng. Đơn giản, nhanh, dễ diễn giải.',
 k_poly:'Đa thức bậc 3, bắt được tương tác giữa các chỉ số nhưng dễ quá khớp.',
@@ -1151,7 +1160,7 @@ au_privacy:'Patient data stays in your browser and is never sent to the server.'
 e_invalid_username:'Username must have no spaces or accented letters; only a–z, digits and . _ - (3–32 characters).', e_weak_password:'Password must be 8–128 characters and different from the username.',
 e_mismatch:'The two passwords do not match.', e_username_taken:'This username is already taken.', e_invalid_credentials:'Wrong username or password.',
 e_too_many_attempts:'Too many attempts. Please wait a few minutes and try again.', e_network:'Cannot reach the server.', e_generic:'Something went wrong, please try again.',
-k_title:'SVM kernel', k_sub:'Choose the kernel function used for classification. Try several kernels to see whether the result is stable.',
+k_loading:'Loading kernel list…', k_err:'Could not load the kernel list. Please reload the page (Ctrl+F5).', k_title:'SVM kernel', k_sub:'Choose the kernel function used for classification. Try several kernels to see whether the result is stable.',
 k_def:'Default', k_training:'Training the remaining kernels…', k_wait:'The other kernels are still training, please wait a few seconds and try again.',
 k_linear:'The decision boundary is a hyperplane. Simple, fast and easy to interpret.',
 k_poly:'Degree-3 polynomial: captures interactions between features but can overfit.',
@@ -1700,24 +1709,24 @@ $('fileIn').addEventListener('change', e => { handleFile(e.target.files[0]); e.t
 /* ================= Kernels ================= */
 const KNAME = { linear: 'Linear', poly: 'Polynomial', rbf: 'RBF', sigmoid: 'Sigmoid', laplacian: 'Laplacian', cosine: 'Cosine' };
 const kName = k => k ? (KNAME[k] || k) : '';
-let KERNELS = [], DEFAULT_K = '', selKernel = '', kernelsReady = false, kPoll = null, batchKernel = '';
+let KERNELS = [], DEFAULT_K = '', selKernel = '', kernelsReady = false, kPoll = null, batchKernel = '', kLoadErr = false;
 const kernelToUse = () => { const k = KERNELS.find(z => z.name === selKernel); return k && k.available ? selKernel : (DEFAULT_K || ''); };
 async function loadKernels() {
   try {
     const r = await fetch('/kernels');
     if (r.status === 401) { location.reload(); return; }
-    if (!r.ok) return;
+    if (!r.ok) { kLoadErr = true; renderKernels(); return; }
     const d = await r.json();
-    KERNELS = d.kernels; DEFAULT_K = d.default; kernelsReady = d.ready;
+    kLoadErr = false; KERNELS = d.kernels; DEFAULT_K = d.default; kernelsReady = d.ready;
     if (!selKernel) { let s = ''; try { s = localStorage.getItem('onco-kernel') || ''; } catch (e) {} selKernel = KERNELS.some(k => k.name === s) ? s : DEFAULT_K; }
     renderKernels();
     if (shown && shown.kres) renderKernelCompare();
     if (!d.ready) { clearTimeout(kPoll); kPoll = setTimeout(loadKernels, 3000); }
-  } catch (e) {}
+  } catch (e) { kLoadErr = true; renderKernels(); }
 }
 function renderKernels() {
   const g = $('kernelGrid'); if (!g) return;
-  if (!KERNELS.length) { g.innerHTML = ''; $('kernelInfo').innerHTML = ''; return; }
+  if (!KERNELS.length) { g.innerHTML = ''; $('kernelInfo').innerHTML = '<div class="kn">' + (kLoadErr ? t('k_err') : '<i class="fa-solid fa-spinner fa-spin"></i> ' + t('k_loading')) + '</div>'; return; }
   const cur = kernelToUse();
   g.innerHTML = KERNELS.map(k => `<button type="button" class="kchip${k.name === cur ? ' on' : ''}" ${k.available ? '' : 'disabled'} onclick="selectKernel('${k.name}')"><b>${kName(k.name)}</b><small>${k.metrics ? (k.metrics.accuracy * 100).toFixed(1) + '%' : '…'}</small></button>`).join('');
   const c = KERNELS.find(k => k.name === cur); let html = '';
