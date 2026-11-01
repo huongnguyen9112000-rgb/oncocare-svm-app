@@ -52,134 +52,141 @@ def home_page():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>OncoCare AI - Hệ Thống Y Tế Thông Minh</title>
+        <title>OncoCare AI - Nền Tảng Chẩn Đoán Ung Thư Vú Thông Minh</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
         <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
         <style>
             :root {
-                --bg-app: #f4f7f6;
-                --sidebar-bg: #ffffff;
-                --primary-teal: #0d9488;
-                --primary-teal-hover: #0f766e;
+                --primary: #0284c7;
+                --primary-dark: #0369a1;
+                --teal-accent: #0d9488;
+                --bg-light: #f8fafc;
                 --card-bg: #ffffff;
-                --text-main: #1e293b;
+                --text-main: #0f172a;
                 --text-muted: #64748b;
                 --border-color: #e2e8f0;
             }
-            body { background-color: var(--bg-app); font-family: 'Inter', sans-serif; color: var(--text-main); }
+            body { background-color: var(--bg-light); font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-main); }
             
-            /* Sidebar chuẩn y tế sáng sủa */
-            .sidebar { min-height: 100vh; background: var(--sidebar-bg); border-right: 1px solid var(--border-color); position: fixed; width: 270px; top: 0; left: 0; z-index: 100; box-shadow: 4px 0 20px rgba(0, 0, 0, 0.02); }
-            .sidebar .brand { padding: 24px; font-size: 1.2rem; font-weight: 700; background: #ffffff; border-bottom: 1px solid var(--border-color); color: var(--primary-teal); display: flex; align-items: center; gap: 10px; }
-            .sidebar .nav-link { color: var(--text-muted); padding: 12px 20px; margin: 6px 15px; border-radius: 10px; font-weight: 600; cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 12px; }
-            .sidebar .nav-link:hover, .sidebar .nav-link.active { background: #f0fdf4; color: var(--primary-teal); }
-            .sidebar .nav-link.active { background: #ccfbf1; color: #115e59; }
-            
-            /* Main Content */
-            .main-content { margin-left: 270px; padding: 40px; }
-            .card { border: 1px solid var(--border-color); border-radius: 16px; background: var(--card-bg); box-shadow: 0 4px 20px rgba(0,0,0,0.03); }
+            /* Top Navbar Sáng Sủa & Hiển Thị Độc Lập */
+            .top-navbar { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 1000; padding: 15px 0; }
+            .navbar-brand { font-weight: 800; color: var(--text-main); font-size: 1.3rem; display: flex; align-items: center; gap: 10px; }
+            .nav-tabs { border: none; gap: 8px; }
+            .nav-tabs .nav-link { border: 1px solid var(--border-color); border-radius: 50rem; padding: 8px 20px; font-weight: 600; color: var(--text-muted); background: #fff; transition: 0.2s; cursor: pointer; }
+            .nav-tabs .nav-link:hover { border-color: var(--primary); color: var(--primary); }
+            .nav-tabs .nav-link.active { background: var(--primary); color: #fff; border-color: var(--primary); box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25); }
+
+            /* Container & Cards */
+            .main-container { max-width: 1300px; margin: 30px auto; padding: 0 20px; }
+            .card { border: 1px solid var(--border-color); border-radius: 20px; background: var(--card-bg); box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.03); }
             .tab-pane-content { display: none; animation: fadeIn 0.3s ease; }
             .tab-pane-content.active { display: block; }
             
             @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
-            /* Inputs */
-            .feature-card { background: #f8fafc; border: 1px solid var(--border-color); border-radius: 10px; padding: 14px; transition: 0.2s; }
-            .feature-card:hover { border-color: var(--primary-teal); background: #ffffff; box-shadow: 0 4px 12px rgba(13, 148, 136, 0.08); }
-            .feature-card .form-control { background-color: #ffffff; border-color: #cbd5e1; color: #0f172a; font-weight: 600; }
-            .feature-card .form-control:focus { border-color: var(--primary-teal); box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15); background-color: #ffffff; }
+            /* Input Cards */
+            .feature-card { background: #f8fafc; border: 1px solid var(--border-color); border-radius: 14px; padding: 14px; transition: 0.2s; }
+            .feature-card:hover { border-color: var(--primary); background: #fff; box-shadow: 0 4px 15px rgba(2, 132, 199, 0.08); }
+            .feature-card .form-control { background-color: #fff; border-color: #cbd5e1; color: var(--text-main); font-weight: 700; border-radius: 8px; }
+            .feature-card .form-control:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15); }
 
-            /* Buttons */
-            .btn-medical { background: var(--primary-teal); color: #fff; font-weight: 600; border: none; border-radius: 10px; padding: 12px 28px; transition: 0.2s; box-shadow: 0 4px 12px rgba(13, 148, 136, 0.25); }
-            .btn-medical:hover { background: var(--primary-teal-hover); color: #fff; transform: translateY(-1px); }
+            /* Main Button */
+            .btn-action { background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: white; font-weight: 700; border-radius: 50rem; padding: 14px 40px; box-shadow: 0 8px 20px rgba(2, 132, 199, 0.3); transition: 0.2s; }
+            .btn-action:hover { opacity: 0.95; transform: translateY(-2px); box-shadow: 0 12px 25px rgba(2, 132, 199, 0.4); color: #fff; }
 
-            /* Result Box */
-            .result-box { background: #ffffff; border: 1px solid var(--border-color); border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
-            .progress { background-color: #f1f5f9; border-radius: 8px; height: 12px; padding: 2px; }
-            .progress-bar { border-radius: 6px; transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
-            
+            /* Result Box HUD */
+            .result-card { background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%); border: 2px solid #bae6fd; border-radius: 24px; box-shadow: 0 20px 40px rgba(2, 132, 199, 0.08); }
+            .progress { background-color: #e2e8f0; border-radius: 50rem; height: 14px; padding: 2px; }
+            .progress-bar { border-radius: 50rem; transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
+
             /* Table */
-            .table-medical th { background: #f8fafc; color: var(--text-muted); font-weight: 700; text-transform: uppercase; font-size: 0.75rem; border-bottom: 2px solid var(--border-color); }
-            .table-medical td { border-bottom: 1px solid #f1f5f9; color: var(--text-main); vertical-align: middle; font-weight: 500; }
+            .table th { background: #f8fafc; color: var(--text-muted); font-weight: 700; text-transform: uppercase; font-size: 0.75rem; border-bottom: 2px solid var(--border-color); }
+            .table td { border-bottom: 1px solid #f1f5f9; color: var(--text-main); vertical-align: middle; font-weight: 500; }
         </style>
     </head>
     <body>
 
-        <div class="sidebar d-flex flex-column">
-            <div class="brand"><i class="fa-solid fa-notes-medical fs-4"></i> OncoCare AI</div>
-            <ul class="nav flex-column mt-3">
-                <li class="nav-item"><a class="nav-link active" onclick="switchTab('tab-predict', event)"><i class="fa-solid fa-stethoscope"></i> Chẩn Đoán AI</a></li>
-                <li class="nav-item"><a class="nav-link" onclick="switchTab('tab-history', event)"><i class="fa-solid fa-clock-rotate-left"></i> Lịch Sử Khám</a></li>
-                <li class="nav-item"><a class="nav-link" onclick="switchTab('tab-stats', event)"><i class="fa-solid fa-chart-pie"></i> Thống Kê Hệ Thống</a></li>
-                <li class="nav-item"><a class="nav-link" onclick="switchTab('tab-guide', event)"><i class="fa-solid fa-book-medical"></i> Hướng Dẫn Chỉ Số</a></li>
-            </ul>
-            <div class="mt-auto p-4 text-muted small border-top border-light">
-                <div class="fw-bold text-dark mb-1">Hệ Thống SVM Y Tế</div>
-                <div style="font-size: 0.75rem;">Phiên bản chuẩn FDA v1.0</div>
+        <!-- TOP NAVIGATION BAR -->
+        <nav class="top-navbar">
+            <div class="container d-flex justify-content-between align-items-center">
+                <div class="navbar-brand">
+                    <div class="bg-sky text-white rounded-3 p-2 d-flex align-items-center justify-content-center shadow-sm" style="background: var(--primary); width: 38px; height: 38px;">
+                        <i class="fa-solid fa-heart-pulse fs-5"></i>
+                    </div>
+                    <span>OncoCare <span class="text-primary" style="color:var(--primary)">AI</span></span>
+                </div>
+                <ul class="nav nav-tabs mb-0" id="myTab">
+                    <li class="nav-item"><a class="nav-link active" onclick="switchTab('tab-predict', event)"><i class="fa-solid fa-stethoscope me-1"></i> Chẩn Đoán AI</a></li>
+                    <li class="nav-item"><a class="nav-link" onclick="switchTab('tab-history', event)"><i class="fa-solid fa-clock-rotate-left me-1"></i> Lịch Sử Khám</a></li>
+                    <li class="nav-item"><a class="nav-link" onclick="switchTab('tab-stats', event)"><i class="fa-solid fa-chart-pie me-1"></i> Thống Kê</a></li>
+                    <li class="nav-item"><a class="nav-link" onclick="switchTab('tab-guide', event)"><i class="fa-solid fa-book-medical me-1"></i> Hướng Dẫn</a></li>
+                </ul>
             </div>
-        </div>
+        </nav>
 
-        <div class="main-content">
+        <!-- MAIN CONTAINER -->
+        <div class="main-container">
+            
             <!-- TAB 1: CHẨN ĐOÁN -->
             <div id="tab-predict" class="tab-pane-content active">
-                <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+                <div class="d-flex justify-content-between align-items-center mb-4 pb-2">
                     <div>
-                        <h1 class="fw-bold text-dark mb-1 fs-3">Phân Tích & Chẩn Đoán Khối U Vú</h1>
-                        <p class="text-muted mb-0">Hệ thống hỗ trợ lâm sàng ứng dụng mô hình SVM tiêu chuẩn.</p>
+                        <h1 class="fw-bold fs-3 text-dark mb-1">Trạm Phân Tích Lâm Sàng SVM</h1>
+                        <p class="text-muted mb-0">Hệ thống trí tuệ nhân tạo hỗ trợ chẩn đoán khối u vú chuẩn xác cao.</p>
                     </div>
                     <div class="d-flex gap-2">
-                        <button type="button" class="btn btn-outline-success btn-sm px-3 rounded-pill fw-semibold shadow-sm" onclick="loadSampleData('benign')"><i class="fa-solid fa-shield-halved me-1"></i> Mẫu Lành Tính</button>
-                        <button type="button" class="btn btn-outline-danger btn-sm px-3 rounded-pill fw-semibold shadow-sm" onclick="loadSampleData('malignant')"><i class="fa-solid fa-biohazard me-1"></i> Mẫu Ác Tính</button>
+                        <button type="button" class="btn btn-outline-success btn-sm px-3 rounded-pill fw-bold shadow-sm" onclick="loadSampleData('benign')"><i class="fa-solid fa-shield-halved me-1"></i> Mẫu Lành Tính</button>
+                        <button type="button" class="btn btn-outline-danger btn-sm px-3 rounded-pill fw-bold shadow-sm" onclick="loadSampleData('malignant')"><i class="fa-solid fa-biohazard me-1"></i> Mẫu Ác Tính</button>
                     </div>
                 </div>
 
                 <div class="card p-4 mb-4">
                     <form id="predictionForm">
                         <div class="d-flex justify-content-between align-items-center mb-4">
-                            <h5 class="fw-bold text-dark mb-0"><i class="fa-solid fa-microscope text-teal me-2" style="color:var(--primary-teal)"></i> 30 Chỉ Số Hình Thái Học Tế Bào</h5>
-                            <span class="badge bg-light text-secondary border px-3 py-2 rounded-pill">Định dạng chuẩn</span>
+                            <h5 class="fw-bold text-dark mb-0"><i class="fa-solid fa-microscope text-primary me-2"></i> 30 Chỉ Số Hình Thái Học Tế Bào</h5>
+                            <span class="badge bg-light text-secondary border px-3 py-2 rounded-pill">Định dạng SVM chuẩn</span>
                         </div>
                         <div class="row g-3" id="featureInputs"></div>
                         <div class="mt-5 text-center">
-                            <button type="submit" id="btnSubmit" class="btn btn-medical btn-lg px-5 py-3 rounded-pill">
-                                <i class="fa-solid fa-calculator me-2"></i> Thực Hiện Chẩn Đoán AI
+                            <button type="submit" id="btnSubmit" class="btn btn-action btn-lg">
+                                <i class="fa-solid fa-wand-magic-sparkles me-2"></i> THỰC HIỆN CHẨN ĐOÁN AI
                             </button>
                         </div>
                     </form>
                 </div>
 
-                <!-- KẾT QUẢ -->
-                <div class="result-box p-4 p-md-5 mb-5" id="resultCard" style="display: none;">
+                <!-- KẾT QUẢ HIỂN THỊ -->
+                <div class="result-card p-4 p-md-5 mb-5" id="resultCard" style="display: none;">
                     <div class="d-flex align-items-center justify-content-between mb-4 pb-3 border-bottom">
-                        <h3 class="fw-bold text-dark mb-0 fs-4"><i class="fa-solid fa-file-medical text-teal me-2" style="color:var(--primary-teal)"></i> Kết Quả Phân Tích Chuyên Sâu</h3>
-                        <span class="badge bg-light text-secondary border px-3 py-2 rounded-pill font-monospace">ID: #DIAG-2026</span>
+                        <h3 class="fw-bold text-dark mb-0 fs-4"><i class="fa-solid fa-file-waveform text-primary me-2"></i> Báo Cáo Kết Quả Phân Tích</h3>
+                        <span class="badge bg-primary text-white px-3 py-2 rounded-pill font-monospace">STATUS: SECURED</span>
                     </div>
                     
-                    <div id="resultAlert" class="alert mb-4 py-3 rounded-4 fw-semibold border-0 shadow-sm" role="alert"></div>
+                    <div id="resultAlert" class="alert mb-4 py-3 rounded-4 fw-bold border-0 shadow-sm" role="alert"></div>
                     
                     <div class="row align-items-center g-4">
                         <div class="col-lg-5 border-end pe-lg-4">
-                            <span class="text-muted text-uppercase small fw-bold">Kết luận mô hình:</span>
-                            <h2 id="resPrediction" class="fw-bold my-2 display-6"></h2>
-                            <p class="small text-muted mb-0 mt-3 p-3 rounded-3 bg-light border">
-                                <i class="fa-solid fa-circle-info text-teal me-1" style="color:var(--primary-teal)"></i> 
-                                <strong>Lưu ý:</strong> Kết quả mang tính chất tham khảo lâm sàng hỗ trợ bác sĩ chuyên khoa, không thay thế chẩn đoán chính thức.
+                            <span class="text-muted text-uppercase small fw-bold">Kết luận mô hình SVM:</span>
+                            <h2 id="resPrediction" class="fw-extrabold my-2 display-6"></h2>
+                            <p class="small text-muted mb-0 mt-3 p-3 rounded-3 bg-white border">
+                                <i class="fa-solid fa-circle-info text-primary me-1"></i> 
+                                <strong>Lưu ý:</strong> Kết quả thuật toán hỗ trợ tham khảo lâm sàng, không thay thế chẩn đoán chuyên khoa chính thức.
                             </p>
                         </div>
                         <div class="col-lg-7 ps-lg-4">
-                            <div class="mb-3 p-3 rounded-4 bg-light border">
+                            <div class="mb-3 p-3 rounded-4 bg-white border shadow-sm">
                                 <div class="d-flex justify-content-between mb-2">
-                                    <span class="fw-semibold text-secondary">Xác suất Lành tính (Benign):</span>
+                                    <span class="fw-bold text-secondary">Xác suất Lành tính (Benign):</span>
                                     <span id="resBenignText" class="text-success fw-bold fs-5">0%</span>
                                 </div>
                                 <div class="progress">
                                     <div id="barBenign" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div>
                                 </div>
                             </div>
-                            <div class="p-3 rounded-4 bg-light border">
+                            <div class="p-3 rounded-4 bg-white border shadow-sm">
                                 <div class="d-flex justify-content-between mb-2">
-                                    <span class="fw-semibold text-secondary">Xác suất Ác tính (Malignant):</span>
+                                    <span class="fw-bold text-secondary">Xác suất Ác tính (Malignant):</span>
                                     <span id="resMalignantText" class="text-danger fw-bold fs-5">0%</span>
                                 </div>
                                 <div class="progress">
@@ -193,14 +200,14 @@ def home_page():
 
             <!-- TAB 2: LỊCH SỬ -->
             <div id="tab-history" class="tab-pane-content">
-                <h1 class="fw-bold text-dark mb-1 fs-3">Lịch Sử Ca Chẩn Đoán</h1>
-                <p class="text-muted mb-4">Các ca phân tích đã thực hiện trong phiên làm việc hiện tại.</p>
+                <h2 class="fw-bold text-dark mb-1 fs-3">Nhật Ký Ca Khám</h2>
+                <p class="text-muted mb-4">Lưu trữ toàn bộ lịch sử phân tích trong phiên làm việc hiện tại.</p>
                 <div class="card p-4">
                     <div class="table-responsive">
-                        <table class="table table-medical align-middle mb-0">
+                        <table class="table align-middle mb-0">
                             <thead>
                                 <tr>
-                                    <th>Mã Ca Khám</th>
+                                    <th>Mã Ca</th>
                                     <th>Thời Gian</th>
                                     <th>Kết Luận</th>
                                     <th>Xác Suất Ác Tính</th>
@@ -217,13 +224,13 @@ def home_page():
 
             <!-- TAB 3: THỐNG KÊ -->
             <div id="tab-stats" class="tab-pane-content">
-                <h1 class="fw-bold text-dark mb-1 fs-3">Thống Kê Hệ Thống</h1>
-                <p class="text-muted mb-4">Tổng quan phân phối dữ liệu phân tích và cấu hình mô hình SVM.</p>
+                <h2 class="fw-bold text-dark mb-1 fs-3">Thống Kê Hệ Thống</h2>
+                <p class="text-muted mb-4">Tổng quan phân phối số liệu phân tích khối u.</p>
                 <div class="row g-4 mb-4">
                     <div class="col-md-4">
-                        <div class="card p-4 text-center border-top border-teal border-4" style="border-top-color: var(--primary-teal) !important;">
+                        <div class="card p-4 text-center border-top border-primary border-4" style="border-top-color: var(--primary) !important;">
                             <span class="text-muted fw-bold small text-uppercase">Tổng Số Ca</span>
-                            <h2 id="statTotal" class="fw-bold mt-2 display-5 text-teal" style="color: var(--primary-teal)">0</h2>
+                            <h2 id="statTotal" class="fw-bold mt-2 display-5 text-primary">0</h2>
                         </div>
                     </div>
                     <div class="col-md-4">
@@ -239,19 +246,11 @@ def home_page():
                         </div>
                     </div>
                 </div>
-                <div class="card p-4">
-                    <h5 class="fw-bold mb-3"><i class="fa-solid fa-server me-2 text-teal" style="color:var(--primary-teal)"></i> Cấu Hình Kỹ Thuật</h5>
-                    <ul class="list-group list-group-flush">
-                        <li class="list-group-item d-flex justify-content-between py-3"><span>Thuật toán:</span> <strong class="text-dark">Support Vector Machine (SVC)</strong></li>
-                        <li class="list-group-item d-flex justify-content-between py-3"><span>Phiên bản:</span> <strong id="modelVersionDisplay" class="text-dark">1.0.0</strong></li>
-                        <li class="list-group-item d-flex justify-content-between py-3"><span>Không gian đặc trưng:</span> <strong class="text-dark">30 chiều</strong></li>
-                    </ul>
-                </div>
             </div>
 
             <!-- TAB 4: HƯỚNG DẪN -->
             <div id="tab-guide" class="tab-pane-content">
-                <h1 class="fw-bold text-dark mb-1 fs-3">Tra Cứu 30 Chỉ Số Lâm Sàng</h1>
+                <h2 class="fw-bold text-dark mb-1 fs-3">Tra Cứu 30 Chỉ Số Lâm Sàng</h2>
                 <p class="text-muted mb-4">Ý nghĩa kỹ thuật của các đặc trưng trích xuất từ tế bào học.</p>
                 <div class="card p-4">
                     <div class="row g-3" id="guideContainer"></div>
@@ -301,7 +300,6 @@ def home_page():
                 const res = await fetch('/metadata');
                 const data = await res.json();
                 featureNames = data.feature_names;
-                document.getElementById('modelVersionDisplay').innerText = data.model_version;
                 renderInputs();
                 renderGuide();
             }
@@ -320,7 +318,7 @@ def home_page():
                 g.innerHTML = '';
                 Object.keys(featureMap).forEach((k, i) => {
                     let info = featureMap[k];
-                    g.innerHTML += `<div class="col-md-6"><div class="p-3 border rounded bg-light h-100"><h6 class="text-teal fw-bold mb-1" style="color:var(--primary-teal)">${i+1}. ${info.name}</h6><code class="text-muted small">key: ${k}</code><p class="small text-secondary mb-0 mt-1">${info.desc}</p></div></div>`;
+                    g.innerHTML += `<div class="col-md-6"><div class="p-3 border rounded bg-white h-100 shadow-sm"><h6 class="text-primary fw-bold mb-1">${i+1}. ${info.name}</h6><code class="text-muted small">key: ${k}</code><p class="small text-secondary mb-0 mt-1">${info.desc}</p></div></div>`;
                 });
             }
 
@@ -335,7 +333,7 @@ def home_page():
             function switchTab(id, e) {
                 if(e) e.preventDefault();
                 document.querySelectorAll('.tab-pane-content').forEach(el => el.classList.remove('active'));
-                document.querySelectorAll('.sidebar .nav-link').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.top-navbar .nav-link').forEach(el => el.classList.remove('active'));
                 document.getElementById(id).classList.add('active');
                 if(e && e.currentTarget) e.currentTarget.classList.add('active');
             }
@@ -376,11 +374,11 @@ def home_page():
                     
                     historyList.unshift(rec);
                     let tb = document.getElementById('historyTableBody');
-                    tb.innerHTML = historyList.map(h => `<tr><td><strong class="text-dark">${h.id}</strong></td><td class="text-muted">${h.time}</td><td>${h.label}</td><td class="fw-bold">${h.prob}</td><td><button class="btn btn-sm btn-outline-teal px-3 rounded-pill fw-semibold" style="border-color:var(--primary-teal); color:var(--primary-teal);" onclick="switchTab('tab-predict', event)">Xem</button></td></tr>`).join('');
+                    tb.innerHTML = historyList.map(h => `<tr><td><strong class="text-dark">${h.id}</strong></td><td class="text-muted">${h.time}</td><td>${h.label}</td><td class="fw-bold">${h.prob}</td><td><button class="btn btn-sm btn-outline-primary px-3 rounded-pill fw-semibold" onclick="switchTab('tab-predict', event)">Xem</button></td></tr>`).join('');
                     
                     document.getElementById('resultCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 } finally {
-                    btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-calculator me-2"></i> Thực Hiện Chẩn Đoán AI';
+                    btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles me-2"></i> THỰC HIỆN CHẨN ĐOÁN AI';
                 }
             });
             init();
